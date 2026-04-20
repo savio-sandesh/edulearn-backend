@@ -1,9 +1,10 @@
 using EduLearn.Auth.API.Data;
+using EduLearn.Auth.API.Repositories;
 using EduLearn.Auth.API.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-using Microsoft.OpenApi;
+using Microsoft.OpenApi.Models;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -13,12 +14,21 @@ builder.Services.AddDbContext<AuthDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 // --- 2. Dependency Injection for Services ---
+builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IBlobService, BlobService>(); // Moved here for better organization
 
 // --- 3. JWT Authentication Setup ---
 var jwtSettings = builder.Configuration.GetSection("Jwt");
-var key = Encoding.ASCII.GetBytes(jwtSettings["Key"]!);
+var jwtKey = GetRequiredJwtValue(jwtSettings, "Key");
+if (jwtKey.StartsWith("<set-via-", StringComparison.Ordinal) || jwtKey.Length < 32)
+{
+    throw new InvalidOperationException("Jwt:Key must be configured and at least 32 characters long.");
+}
+
+var jwtIssuer = GetRequiredJwtValue(jwtSettings, "Issuer");
+var jwtAudience = GetRequiredJwtValue(jwtSettings, "Audience");
+var key = Encoding.ASCII.GetBytes(jwtKey);
 
 builder.Services.AddAuthentication(options =>
 {
@@ -33,10 +43,23 @@ builder.Services.AddAuthentication(options =>
         IssuerSigningKey = new SymmetricSecurityKey(key),
         ValidateIssuer = true,
         ValidateAudience = true,
-        ValidIssuer = jwtSettings["Issuer"],
-        ValidAudience = jwtSettings["Audience"],
+        ValidIssuer = jwtIssuer,
+        ValidAudience = jwtAudience,
         ValidateLifetime = true,
         ClockSkew = TimeSpan.Zero
+    };
+
+    options.Events = new JwtBearerEvents
+    {
+        OnAuthenticationFailed = context =>
+        {
+            var logger = context.HttpContext.RequestServices
+                .GetRequiredService<ILoggerFactory>()
+                .CreateLogger("JwtAuth");
+
+            logger.LogWarning(context.Exception, "JWT authentication failed.");
+            return Task.CompletedTask;
+        }
     };
 });
 
@@ -62,10 +85,17 @@ builder.Services.AddSwaggerGen(options =>
 
     options.AddSecurityDefinition("Bearer", bearerSecurityScheme);
 
-    options.AddSecurityRequirement(_ => new OpenApiSecurityRequirement
+    options.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
         {
-            new OpenApiSecuritySchemeReference("Bearer"),
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
             new List<string>()
         }
     });
@@ -88,3 +118,20 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+/// <summary>
+/// Reads a required Jwt setting and fails fast when it is missing or blank.
+/// </summary>
+/// <param name="jwtSection">Jwt configuration section.</param>
+/// <param name="key">Configuration key name inside Jwt section.</param>
+/// <returns>Non-empty configuration value.</returns>
+static string GetRequiredJwtValue(IConfigurationSection jwtSection, string key)
+{
+    var value = jwtSection[key];
+    if (string.IsNullOrWhiteSpace(value))
+    {
+        throw new InvalidOperationException($"Jwt:{key} is missing from configuration.");
+    }
+
+    return value;
+}
