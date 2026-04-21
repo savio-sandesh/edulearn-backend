@@ -1,0 +1,326 @@
+using EduLearn.Course.API.DTOs;
+using EduLearn.Course.API.Models;
+using EduLearn.Course.API.Repositories;
+using Microsoft.EntityFrameworkCore;
+using CourseModel = EduLearn.Course.API.Models.Course;
+
+namespace EduLearn.Course.API.Services
+{
+    public class CourseService : ICourseService
+    {
+        private readonly ICourseRepository _courseRepository;
+
+        public CourseService(ICourseRepository courseRepository)
+        {
+            _courseRepository = courseRepository;
+        }
+
+        public async Task<CourseResponseDto> CreateCourseAsync(CourseCreateDto courseDto, int currentUserId)
+        {
+            var course = MapToEntity(courseDto);
+            course.Level = NormalizeLevel(course.Level);
+            course.Category = await NormalizeAndValidateCategoryAsync(course.Category);
+            course.Language = course.Language.Trim();
+            course.InstructorId = currentUserId;
+            course.CreatedAt = DateTime.UtcNow;
+            course.UpdatedAt = DateTime.UtcNow;
+            course.IsPublished = false;
+            course.IsApproved = false;
+            course.EnrollmentCount = 0;
+
+            await _courseRepository.AddAsync(course);
+            await _courseRepository.SaveChangesAsync();
+            return MapToResponseDto(course);
+        }
+
+        public async Task<CourseResponseDto?> GetCourseByIdAsync(int courseId)
+        {
+            var course = await _courseRepository.FindByCourseIdAsync(courseId);
+            return course == null ? null : MapToResponseDto(course);
+        }
+
+        public async Task<IReadOnlyList<CourseResponseDto>> GetCoursesByInstructorAsync(int instructorId)
+        {
+            var courses = await _courseRepository.FindByInstructorIdAsync(instructorId);
+            return courses.Select(MapToResponseDto).ToList();
+        }
+
+        public async Task<IReadOnlyList<CourseResponseDto>> GetCoursesByCategoryAsync(string category)
+        {
+            var courses = await _courseRepository.FindByCategoryAsync(category);
+            return courses.Select(MapToResponseDto).ToList();
+        }
+
+        public async Task<IReadOnlyList<string>> GetAvailableCategoriesAsync()
+        {
+            return await _courseRepository.GetAllCategoryNamesAsync();
+        }
+
+        public async Task<IReadOnlyList<CourseResponseDto>> GetPublishedCoursesAsync()
+        {
+            var published = await _courseRepository.FindByIsPublishedAsync(true);
+            var courses = published.Where(c => c.IsApproved).ToList();
+            return courses.Select(MapToResponseDto).ToList();
+        }
+
+        public async Task<IReadOnlyList<CourseResponseDto>> SearchCoursesAsync(string searchTerm)
+        {
+            var results = await _courseRepository.SearchCoursesAsync(searchTerm);
+            var courses = results.Where(c => c.IsPublished && c.IsApproved).ToList();
+            return courses.Select(MapToResponseDto).ToList();
+        }
+
+        public async Task<CourseResponseDto?> UpdateCourseAsync(int courseId, CourseUpdateDto updatedCourse, int currentUserId, bool isAdmin)
+        {
+            var existing = await _courseRepository.FindByCourseIdAsync(courseId);
+            if (existing == null)
+            {
+                return null;
+            }
+
+            EnsureCanModifyCourse(existing, currentUserId, isAdmin);
+
+            MapUpdateDtoOntoEntity(updatedCourse, existing);
+            existing.Category = await NormalizeAndValidateCategoryAsync(existing.Category);
+            existing.Level = NormalizeLevel(existing.Level);
+            existing.Language = existing.Language.Trim();
+            existing.UpdatedAt = DateTime.UtcNow;
+
+            // Updated content must go through publish/approve workflow again.
+            existing.IsPublished = false;
+            existing.IsApproved = false;
+
+            await _courseRepository.SaveChangesAsync();
+            return MapToResponseDto(existing);
+        }
+
+        public async Task<CourseResponseDto?> UpdateThumbnailUrlAsync(int courseId, string thumbnailUrl, int currentUserId, bool isAdmin)
+        {
+            var course = await _courseRepository.FindByCourseIdAsync(courseId);
+            if (course == null)
+            {
+                return null;
+            }
+
+            EnsureCanModifyCourse(course, currentUserId, isAdmin);
+
+            course.ThumbnailUrl = thumbnailUrl;
+            course.UpdatedAt = DateTime.UtcNow;
+
+            await _courseRepository.SaveChangesAsync();
+            return MapToResponseDto(course);
+        }
+
+        public async Task<bool> PublishCourseAsync(int courseId, int currentUserId, bool isAdmin)
+        {
+            var course = await _courseRepository.FindByCourseIdAsync(courseId);
+            if (course == null)
+            {
+                return false;
+            }
+
+            EnsureCanModifyCourse(course, currentUserId, isAdmin);
+
+            course.IsPublished = true;
+            course.UpdatedAt = DateTime.UtcNow;
+            await _courseRepository.SaveChangesAsync();
+            return true;
+        }
+
+        public async Task<bool> ApproveCourseAsync(int courseId)
+        {
+            var course = await _courseRepository.FindByCourseIdAsync(courseId);
+            if (course == null)
+            {
+                return false;
+            }
+
+            // Enforce two-step workflow: only published courses can be approved.
+            if (!course.IsPublished)
+            {
+                return false;
+            }
+
+            course.IsApproved = true;
+            course.UpdatedAt = DateTime.UtcNow;
+            await _courseRepository.SaveChangesAsync();
+            return true;
+        }
+
+        public async Task<bool> RejectCourseAsync(int courseId)
+        {
+            var course = await _courseRepository.FindByCourseIdAsync(courseId);
+            if (course == null)
+            {
+                return false;
+            }
+
+            // Rejection makes the course non-public until instructor edits and republishes.
+            course.IsApproved = false;
+            course.IsPublished = false;
+            course.UpdatedAt = DateTime.UtcNow;
+            await _courseRepository.SaveChangesAsync();
+            return true;
+        }
+
+        public async Task<bool> DeleteCourseAsync(int courseId, int currentUserId, bool isAdmin)
+        {
+            var course = await _courseRepository.FindByCourseIdAsync(courseId);
+            if (course == null)
+            {
+                return false;
+            }
+
+            EnsureCanModifyCourse(course, currentUserId, isAdmin);
+            return await _courseRepository.DeleteByIdAsync(courseId);
+        }
+
+        public async Task<IReadOnlyList<CourseResponseDto>> GetTopRatedCoursesAsync(int count)
+        {
+            var courses = await _courseRepository.FindTopRatedAsync(count);
+            return courses.Select(MapToResponseDto).ToList();
+        }
+
+        public async Task<bool> IncrementEnrollmentAsync(int courseId)
+        {
+            var course = await _courseRepository.FindByCourseIdAsync(courseId);
+            if (course == null)
+            {
+                return false;
+            }
+
+            await _courseRepository.IncrementEnrollmentAsync(courseId);
+            return true;
+        }
+
+        public async Task<ReviewResponseDto?> AddReviewAsync(ReviewCreateDto reviewDto, int currentUserId)
+        {
+            var course = await _courseRepository.FindByCourseIdAsync(reviewDto.CourseId);
+            if (course == null)
+            {
+                return null;
+            }
+
+            if (!course.IsPublished || !course.IsApproved)
+            {
+                throw new ArgumentException("You can only review published and approved courses.");
+            }
+
+            var review = new Review
+            {
+                CourseId = reviewDto.CourseId,
+                StudentId = currentUserId,
+                Rating = reviewDto.Rating,
+                Comment = reviewDto.Comment?.Trim(),
+                CreatedAt = DateTime.UtcNow
+            };
+
+            try
+            {
+                await _courseRepository.AddReviewAsync(review);
+                await _courseRepository.SaveChangesAsync();
+            }
+            catch (DbUpdateException)
+            {
+                throw new ArgumentException("You have already submitted a review for this course.");
+            }
+
+            return new ReviewResponseDto
+            {
+                ReviewId = review.ReviewId,
+                CourseId = review.CourseId,
+                StudentId = review.StudentId,
+                Rating = review.Rating,
+                Comment = review.Comment,
+                CreatedAt = review.CreatedAt
+            };
+        }
+
+        private static string NormalizeLevel(string level)
+        {
+            var normalized = level?.Trim().ToUpperInvariant() ?? string.Empty;
+            return normalized switch
+            {
+                "BEGINNER" => normalized,
+                "INTERMEDIATE" => normalized,
+                "ADVANCED" => normalized,
+                _ => throw new ArgumentException("Level must be BEGINNER, INTERMEDIATE, or ADVANCED.")
+            };
+        }
+
+        private async Task<string> NormalizeAndValidateCategoryAsync(string category)
+        {
+            var trimmed = category?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(trimmed))
+            {
+                throw new ArgumentException("Category is required.");
+            }
+
+            var resolved = await _courseRepository.ResolveCategoryNameAsync(trimmed);
+            if (!string.IsNullOrWhiteSpace(resolved))
+            {
+                return resolved;
+            }
+
+            var allowed = await _courseRepository.GetAllCategoryNamesAsync();
+            throw new ArgumentException($"Invalid category. Allowed categories: {string.Join(", ", allowed)}");
+        }
+
+        private static void EnsureCanModifyCourse(CourseModel course, int currentUserId, bool isAdmin)
+        {
+            if (!isAdmin && course.InstructorId != currentUserId)
+            {
+                throw new UnauthorizedAccessException("You can only modify your own courses.");
+            }
+        }
+
+        private static CourseModel MapToEntity(CourseCreateDto dto)
+        {
+            return new CourseModel
+            {
+                Title = dto.Title,
+                Description = dto.Description,
+                Category = dto.Category,
+                Level = dto.Level,
+                Language = dto.Language,
+                Price = dto.Price,
+                ThumbnailUrl = dto.ThumbnailUrl,
+                TotalDuration = dto.TotalDuration
+            };
+        }
+
+        private static void MapUpdateDtoOntoEntity(CourseUpdateDto dto, CourseModel course)
+        {
+            course.Title = dto.Title;
+            course.Description = dto.Description;
+            course.Category = dto.Category;
+            course.Level = dto.Level;
+            course.Language = dto.Language;
+            course.Price = dto.Price;
+            course.ThumbnailUrl = dto.ThumbnailUrl;
+            course.TotalDuration = dto.TotalDuration;
+        }
+
+        private static CourseResponseDto MapToResponseDto(CourseModel course)
+        {
+            return new CourseResponseDto
+            {
+                CourseId = course.CourseId,
+                Title = course.Title,
+                Description = course.Description,
+                InstructorId = course.InstructorId,
+                Category = course.Category,
+                Level = course.Level,
+                Language = course.Language,
+                Price = course.Price,
+                ThumbnailUrl = course.ThumbnailUrl,
+                IsPublished = course.IsPublished,
+                IsApproved = course.IsApproved,
+                CreatedAt = course.CreatedAt,
+                UpdatedAt = course.UpdatedAt,
+                TotalDuration = course.TotalDuration,
+                EnrollmentCount = course.EnrollmentCount
+            };
+        }
+    }
+}

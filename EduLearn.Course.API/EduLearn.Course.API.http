@@ -1,0 +1,46 @@
+@EduLearn.Course.API_HostAddress = http://localhost:5224
+
+GET {{EduLearn.Course.API_HostAddress}}/api/courses/published
+Accept: application/json
+
+###
+
+GET {{EduLearn.Course.API_HostAddress}}/api/courses/topRated?count=5
+Accept: application/json
+
+###
+
+GET {{EduLearn.Course.API_HostAddress}}/api/courses/search?q=dotnet
+Accept: application/json
+
+###
+
+GET {{EduLearn.Course.API_HostAddress}}/api/courses/categories
+Accept: application/json
+
+###
+
+POST {{EduLearn.Course.API_HostAddress}}/api/reviews
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+	"courseId": 1,
+	"rating": 5,
+	"comment": "Great course"
+}
+
+###
+
+POST {{EduLearn.Course.API_HostAddress}}/api/courses/1/thumbnail
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="file"; filename="thumbnail.jpg"
+Content-Type: image/jpeg
+
+< ./thumbnail.jpg
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+###

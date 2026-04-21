@@ -1,0 +1,227 @@
+### EduLearn Course API - End-to-End Test Flow (VS Code REST Client)
+### Run requests in order from top to bottom.
+### Prerequisites:
+### 1) Auth API running on http://localhost:5206
+### 2) Course API running on http://localhost:5224
+### 3) Jwt Key/Issuer/Audience must match in both APIs.
+
+@authBaseUrl = http://localhost:5206
+@courseBaseUrl = http://localhost:5224
+
+# Change these if needed
+@instructorEmail = instructor.demo@edulearn.local
+@studentEmail = student.demo@edulearn.local
+@adminEmail = admin.demo@edulearn.local
+@password = Pass@123
+
+# Fallback IDs for lookup endpoints (update if different in your DB)
+@instructorId = 1
+@category = Programming
+
+### ============================
+### 0) First-time setup (optional)
+### ============================
+
+# @name registerInstructor
+POST {{authBaseUrl}}/api/user/register
+Content-Type: application/json
+
+{
+  "fullName": "Instructor Demo",
+  "email": "{{instructorEmail}}",
+  "password": "{{password}}",
+  "role": "INSTRUCTOR"
+}
+
+###
+
+# @name registerStudent
+POST {{authBaseUrl}}/api/user/register
+Content-Type: application/json
+
+{
+  "fullName": "Student Demo",
+  "email": "{{studentEmail}}",
+  "password": "{{password}}",
+  "role": "STUDENT"
+}
+
+###
+
+# @name registerAdmin
+POST {{authBaseUrl}}/api/user/register
+Content-Type: application/json
+
+{
+  "fullName": "Admin Demo",
+  "email": "{{adminEmail}}",
+  "password": "{{password}}",
+  "role": "ADMIN"
+}
+
+### ==========================
+### 1) Login and capture tokens
+### ==========================
+
+# @name loginInstructor
+POST {{authBaseUrl}}/api/user/login
+Content-Type: application/json
+
+{
+  "email": "{{instructorEmail}}",
+  "password": "{{password}}"
+}
+
+###
+
+# @name loginStudent
+POST {{authBaseUrl}}/api/user/login
+Content-Type: application/json
+
+{
+  "email": "{{studentEmail}}",
+  "password": "{{password}}"
+}
+
+###
+
+# @name loginAdmin
+POST {{authBaseUrl}}/api/user/login
+Content-Type: application/json
+
+{
+  "email": "{{adminEmail}}",
+  "password": "{{password}}"
+}
+
+###
+
+@instructorToken = {{loginInstructor.response.body.$.accessToken}}
+@studentToken = {{loginStudent.response.body.$.accessToken}}
+@adminToken = {{loginAdmin.response.body.$.accessToken}}
+
+### ==================================
+### 2) Public Course endpoints (no auth)
+### ==================================
+
+GET {{courseBaseUrl}}/api/courses/published
+Accept: application/json
+
+###
+
+GET {{courseBaseUrl}}/api/courses/topRated?count=5
+Accept: application/json
+
+###
+
+GET {{courseBaseUrl}}/api/courses/search?q=dotnet
+Accept: application/json
+
+###
+
+GET {{courseBaseUrl}}/api/courses/categories
+Accept: application/json
+
+###
+
+GET {{courseBaseUrl}}/api/courses/byCategory/{{category}}
+Accept: application/json
+
+###
+
+GET {{courseBaseUrl}}/api/courses/byInstructor/{{instructorId}}
+Accept: application/json
+
+### =====================================
+### 3) Instructor flow (create and publish)
+### =====================================
+
+# @name createCourse
+POST {{courseBaseUrl}}/api/courses
+Content-Type: application/json
+Authorization: Bearer {{instructorToken}}
+
+{
+  "title": "Mastering ASP.NET Core Web API",
+  "description": "Build production APIs with authentication, EF Core, and clean architecture.",
+  "category": "Programming",
+  "level": "INTERMEDIATE",
+  "language": "English",
+  "price": 49.99,
+  "thumbnailUrl": null,
+  "totalDuration": 480
+}
+
+###
+
+@courseId = {{createCourse.response.body.$.courseId}}
+
+###
+
+GET {{courseBaseUrl}}/api/courses/{{courseId}}
+Accept: application/json
+
+###
+
+# @name updateCourse
+PUT {{courseBaseUrl}}/api/courses/{{courseId}}
+Content-Type: application/json
+Authorization: Bearer {{instructorToken}}
+
+{
+  "title": "Mastering ASP.NET Core Web API - Updated",
+  "description": "Updated course with advanced sections and deployment module.",
+  "category": "Programming",
+  "level": "ADVANCED",
+  "language": "English",
+  "price": 59.99,
+  "thumbnailUrl": null,
+  "totalDuration": 540
+}
+
+###
+
+# @name publishCourse
+PUT {{courseBaseUrl}}/api/courses/publish/{{courseId}}
+Authorization: Bearer {{instructorToken}}
+
+### =====================================
+### 4) Admin moderation flow (approve/reject)
+### =====================================
+
+# @name approveCourse
+PUT {{courseBaseUrl}}/api/courses/approve/{{courseId}}
+Authorization: Bearer {{adminToken}}
+
+###
+
+# Optional alternative moderation test (run only if needed)
+# @name rejectCourse
+PUT {{courseBaseUrl}}/api/courses/reject/{{courseId}}
+Authorization: Bearer {{adminToken}}
+
+### ======================================
+### 5) Student flow (review and enrollment)
+### ======================================
+
+POST {{courseBaseUrl}}/api/reviews
+Content-Type: application/json
+Authorization: Bearer {{studentToken}}
+
+{
+  "courseId": {{courseId}},
+  "rating": 5,
+  "comment": "Excellent course, very practical and clear."
+}
+
+###
+
+POST {{courseBaseUrl}}/api/courses/{{courseId}}/enrollments/increment
+Authorization: Bearer {{studentToken}}
+
+### =======================
+### 6) Cleanup (optional)
+### =======================
+
+DELETE {{courseBaseUrl}}/api/courses/{{courseId}}
+Authorization: Bearer {{instructorToken}}
