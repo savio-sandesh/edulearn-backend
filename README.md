@@ -1,6 +1,6 @@
-﻿# EduLearn Course API
+﻿# EduLearn API Gateway
 
-EduLearn Course API is the course-domain microservice for the EduLearn platform. It handles course lifecycle management, catalog discovery, moderation workflow, reviews, enrollment metrics, and thumbnail upload integration.
+EduLearn API Gateway is the reverse-proxy entry point for backend services in the EduLearn platform. It routes external requests to downstream microservices using YARP.
 
 ## Table of Contents
 
@@ -9,217 +9,148 @@ EduLearn Course API is the course-domain microservice for the EduLearn platform.
 - [Tech Stack](#tech-stack)
 - [Prerequisites](#prerequisites)
 - [Project Structure](#project-structure)
-- [Configuration](#configuration)
-- [Database Migrations](#database-migrations)
+- [Routing Configuration](#routing-configuration)
 - [Run the Service](#run-the-service)
-- [API Endpoints](#api-endpoints)
-- [Authorization Matrix](#authorization-matrix)
+- [Gateway Endpoints](#gateway-endpoints)
 - [Testing Guide](#testing-guide)
 - [Troubleshooting](#troubleshooting)
 - [Build Commands](#build-commands)
 
 ## Overview
 
-This service supports the core course use cases:
+This project acts as a single HTTP gateway for backend APIs.
 
-- instructors create, update, publish, and manage their courses
-- admins moderate published courses (approve or reject)
-- students submit course reviews
-- users discover courses through public listing and search endpoints
-- authenticated users increment course enrollment metrics
+- Incoming Auth requests are proxied to Auth API.
+- Incoming Course requests are proxied to Course API.
+- A health-style root endpoint is exposed for quick gateway availability checks.
 
 ## Features
 
-- Course CRUD with role-based access control
-- Publish and moderation workflow
-- Public catalog discovery endpoints
-- Category and instructor filters
-- Top-rated course retrieval
-- Review creation endpoint for student role
-- Enrollment count increment endpoint
-- Course thumbnail upload endpoint using blob storage
-- Swagger-enabled API documentation
+- Reverse proxy powered by YARP
+- Route and cluster definitions from configuration
+- Path transform support (prefix removal and prefix add)
+- Single entry-point URL for multiple APIs
 
 ## Tech Stack
 
 - .NET 10
-- ASP.NET Core Web API
-- Entity Framework Core + SQL Server
-- JWT Bearer Authentication
-- Azure Storage Blobs SDK
-- Swagger and OpenAPI (Swashbuckle)
+- ASP.NET Core Web API hosting model
+- YARP (Yet Another Reverse Proxy)
 
 ## Prerequisites
 
 - .NET SDK 10
-- SQL Server instance
-- dotnet-ef tool
-- Optional for upload endpoint: Azurite or Azure Storage account
+- Auth API running locally at http://localhost:5206
+- Course API running locally at http://localhost:5224
 
 ## Project Structure
 
-- Controllers: endpoint definitions and HTTP responses
-- Services: business logic orchestration
-- Repositories: data access abstraction
-- Data: DbContext and database mappings
-- DTOs: request and response contracts
-- Models: domain entities
-- Migrations: EF migration history
-- Properties: launch profiles
+- Program.cs: gateway pipeline and reverse-proxy registration
+- appsettings.json: reverse proxy routes, transforms, and clusters
+- Properties/launchSettings.json: local gateway URLs
 
-## Configuration
+## Routing Configuration
 
-Primary configuration file:
+Configured routes in appsettings.json:
 
-- appsettings.json
+1. Auth route
+   - Incoming path: /gateway/auth/{**remainder}
+   - Transforms:
+     - Remove prefix: /gateway/auth
+     - Add prefix: /api
+   - Destination cluster: auth-cluster -> http://localhost:5206/
 
-Required settings:
+2. Course route
+   - Incoming path: /gateway/course/{**remainder}
+   - Transforms:
+     - Remove prefix: /gateway/course
+     - Add prefix: /api
+   - Destination cluster: course-cluster -> http://localhost:5224/
 
-- ConnectionStrings:DefaultConnection
-- Jwt:Key
-- Jwt:Issuer
-- Jwt:Audience
-- AzureStorage:ConnectionString
-- AzureStorage:ContainerName
+Example transformation:
 
-Important JWT rule:
-
-- Jwt:Key, Jwt:Issuer, and Jwt:Audience must match values used by Auth API.
-- If these values differ, protected endpoints return 401 Unauthorized.
-
-Example local setup with user-secrets:
-
-```powershell
-cd .\edulearn-backend\EduLearn.Course.API
-dotnet user-secrets init
-dotnet user-secrets set "Jwt:Key" "your-local-secret-key"
-dotnet user-secrets set "Jwt:Issuer" "EduLearnAuthAPI"
-dotnet user-secrets set "Jwt:Audience" "EduLearnAngularClient"
-dotnet user-secrets set "AzureStorage:ConnectionString" "UseDevelopmentStorage=true"
-dotnet user-secrets set "AzureStorage:ContainerName" "course-thumbnails"
-```
-
-## Database Migrations
-
-From repo root:
-
-```powershell
-dotnet ef database update --project .\edulearn-backend\EduLearn.Course.API\EduLearn.Course.API.csproj
-```
-
-From service folder:
-
-```powershell
-cd .\edulearn-backend\EduLearn.Course.API
-dotnet ef database update
-```
+- /gateway/auth/users/login -> /api/users/login (forwarded to Auth API)
+- /gateway/course/courses/published -> /api/courses/published (forwarded to Course API)
 
 ## Run the Service
 
 From repo root:
 
 ```powershell
-dotnet run --project .\edulearn-backend\EduLearn.Course.API\EduLearn.Course.API.csproj
+dotnet run --project .\edulearn-backend\Edulearn.Gateway.API\Edulearn.Gateway.API.csproj
 ```
 
-Default local URL:
+From service folder:
 
-- http://localhost:5224
+```powershell
+cd .\edulearn-backend\Edulearn.Gateway.API
+dotnet run
+```
 
-Swagger URL:
+Default local URL from launch profile:
 
-- http://localhost:5224/swagger
+- http://localhost:5000
 
-## API Endpoints
+Optional HTTPS profile URL:
 
-Public endpoints:
+- https://localhost:7107
 
-- GET /api/courses/published
-- GET /api/courses/topRated?count={count}
-- GET /api/courses/search?q={query}
-- GET /api/courses/categories
-- GET /api/courses/byCategory/{category}
-- GET /api/courses/byInstructor/{instructorId}
-- GET /api/courses/{id}
+## Gateway Endpoints
 
-Protected endpoints:
+Gateway status endpoint:
 
-- POST /api/courses
-- PUT /api/courses/{id}
-- DELETE /api/courses/{id}
-- PUT /api/courses/publish/{id}
-- PUT /api/courses/approve/{id}
-- PUT /api/courses/reject/{id}
-- POST /api/courses/{id}/thumbnail
-- POST /api/courses/{id}/enrollments/increment
-- POST /api/reviews
+- GET /
+  - Response: EduLearn API Gateway is Running!
 
-## Authorization Matrix
+Proxy entry paths:
 
-- INSTRUCTOR:
-	- POST /api/courses
-	- PUT /api/courses/{id} (own course)
-	- DELETE /api/courses/{id} (own course)
-	- PUT /api/courses/publish/{id} (own course)
-	- POST /api/courses/{id}/thumbnail (own course)
-
-- ADMIN:
-	- PUT /api/courses/{id}
-	- DELETE /api/courses/{id}
-	- PUT /api/courses/publish/{id}
-	- PUT /api/courses/approve/{id}
-	- PUT /api/courses/reject/{id}
-	- POST /api/courses/{id}/thumbnail
-
-- STUDENT:
-	- POST /api/reviews
-
-- Any authenticated user:
-	- POST /api/courses/{id}/enrollments/increment
+- /gateway/auth/*
+- /gateway/course/*
 
 ## Testing Guide
 
-Recommended end-to-end testing flow:
+Recommended local test flow:
 
-1. Start Auth API and Course API.
-2. Obtain tokens from Auth API login for INSTRUCTOR, STUDENT, and ADMIN users.
-3. Authorize in Swagger for protected endpoints.
-4. Execute public endpoints first.
-5. Execute role-specific protected endpoints.
+1. Start Auth API.
+2. Start Course API.
+3. Start Gateway API.
+4. Verify gateway health endpoint.
+5. Call downstream APIs through gateway-prefixed routes.
 
-Request collection for fast testing:
+Sample test requests:
 
-- EduLearn.Course.API.fullflow.http
+```http
+GET http://localhost:5000/
 
-Suggested sequence in the collection:
+GET http://localhost:5000/gateway/course/courses/published
 
-1. Optional register requests
-2. Login requests
-3. Public course requests
-4. Instructor create and publish flow
-5. Admin moderation flow
-6. Student review and enrollment flow
+POST http://localhost:5000/gateway/auth/users/login
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "password": "your-password"
+}
+```
 
 ## Troubleshooting
 
-- 401 Unauthorized
-	- token missing from Authorization header
-	- token role does not match endpoint requirement
-	- token expired
-	- Jwt key/issuer/audience mismatch with Auth API
+- 502 Bad Gateway
+  - verify downstream services are running on configured ports
+  - check cluster destination addresses in appsettings.json
 
-- 500 Error on upload endpoint
-	- invalid or missing AzureStorage connection string
-	- configure Azurite or a valid Azure Storage account
+- 404 from downstream API
+  - verify forwarded path after transforms starts with /api
+  - confirm downstream endpoint exists
 
-- Build errors due to file lock
-	- stop running process first
-	- rerun dotnet build
+- Connection refused
+  - check launch profile URL and request base URL
+  - ensure no port conflict on 5000 or 7107
 
 ## Build Commands
 
 ```powershell
-dotnet restore .\edulearn-backend\EduLearn.Course.API\EduLearn.Course.API.csproj
-dotnet build .\edulearn-backend\EduLearn.Course.API\EduLearn.Course.API.csproj
+dotnet restore .\edulearn-backend\Edulearn.Gateway.API\Edulearn.Gateway.API.csproj
+dotnet build .\edulearn-backend\Edulearn.Gateway.API\Edulearn.Gateway.API.csproj
 ```
 
