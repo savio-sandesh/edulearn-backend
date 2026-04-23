@@ -1,156 +1,236 @@
-﻿# EduLearn API Gateway
+﻿# EduLearn Lesson / Content Service
 
-EduLearn API Gateway is the reverse-proxy entry point for backend services in the EduLearn platform. It routes external requests to downstream microservices using YARP.
+EduLearn Lesson / Content Service manages the ordered lesson list within each course. It supports content-driven rendering metadata, lesson publishing, preview access, and atomic reordering.
 
 ## Table of Contents
 
 - [Overview](#overview)
 - [Features](#features)
 - [Tech Stack](#tech-stack)
-- [Prerequisites](#prerequisites)
 - [Project Structure](#project-structure)
-- [Routing Configuration](#routing-configuration)
+- [Data Model](#data-model)
+- [Business Rules](#business-rules)
+- [Configuration](#configuration)
+- [Database Migrations](#database-migrations)
 - [Run the Service](#run-the-service)
-- [Gateway Endpoints](#gateway-endpoints)
+- [API Endpoints](#api-endpoints)
+- [Gateway Integration](#gateway-integration)
 - [Testing Guide](#testing-guide)
-- [Troubleshooting](#troubleshooting)
 - [Build Commands](#build-commands)
 
 ## Overview
 
-This project acts as a single HTTP gateway for backend APIs.
+This microservice provides lesson/content management for courses:
 
-- Incoming Auth requests are proxied to Auth API.
-- Incoming Course requests are proxied to Course API.
-- A health-style root endpoint is exposed for quick gateway availability checks.
+- Create, update, publish, and delete lessons
+- Retrieve lesson lists by course, ordered sequence, and preview visibility
+- Reorder lesson sequence with an ordered list of LessonIds
+- Return lesson counts per course
 
 ## Features
 
-- Reverse proxy powered by YARP
-- Route and cluster definitions from configuration
-- Path transform support (prefix removal and prefix add)
-- Single entry-point URL for multiple APIs
+- Layered architecture: Controller -> Service -> Repository
+- EF Core entity for `Lesson`
+- ContentType support: `VIDEO`, `ARTICLE`, `PDF`, `QUIZ_LINK`
+- JWT authentication and role-based authorization
+- ContentUrl support for Azure Blob URLs (served as temporary SAS URLs) or external URLs
+- Atomic lesson reordering using transaction + `ExecuteUpdateAsync` loop
+- Preview lesson retrieval (`IsPreview = true`) for discovery use cases
 
 ## Tech Stack
 
 - .NET 10
-- ASP.NET Core Web API hosting model
-- YARP (Yet Another Reverse Proxy)
-
-## Prerequisites
-
-- .NET SDK 10
-- Auth API running locally at http://localhost:5206
-- Course API running locally at http://localhost:5224
+- ASP.NET Core Web API
+- Entity Framework Core + SQL Server
+- Swagger / OpenAPI (Swashbuckle)
+- Azure Storage Blobs SDK (for blob-oriented content workflows)
 
 ## Project Structure
 
-- Program.cs: gateway pipeline and reverse-proxy registration
-- appsettings.json: reverse proxy routes, transforms, and clusters
-- Properties/launchSettings.json: local gateway URLs
+- Controllers/LessonController.cs: lesson endpoints
+- Services/ILessonService.cs: lesson service contract
+- Services/LessonService.cs: lesson business logic
+- Repositories/ILessonRepository.cs: data access contract
+- Repositories/LessonRepository.cs: EF Core data access implementation
+- Data/ContentDbContext.cs: DbContext and model configuration
+- Models/Lesson.cs: lesson entity
+- DTOs/: create/update/reorder/response contracts
 
-## Routing Configuration
+## Data Model
 
-Configured routes in appsettings.json:
+`Lesson` fields:
 
-1. Auth route
-   - Incoming path: /gateway/auth/{**remainder}
-   - Transforms:
-     - Remove prefix: /gateway/auth
-     - Add prefix: /api
-   - Destination cluster: auth-cluster -> http://localhost:5206/
+- LessonId
+- CourseId
+- Title
+- Description
+- ContentType (`VIDEO` / `ARTICLE` / `PDF` / `QUIZ_LINK`)
+- ContentUrl
+- DurationMinutes
+- DisplayOrder
+- IsPreview
+- IsPublished
+- CreatedAt
 
-2. Course route
-   - Incoming path: /gateway/course/{**remainder}
-   - Transforms:
-     - Remove prefix: /gateway/course
-     - Add prefix: /api
-   - Destination cluster: course-cluster -> http://localhost:5224/
+## Business Rules
 
-Example transformation:
+- `ContentType` is validated against the allowed set.
+- `ContentUrl` must be an absolute URL.
+- New lessons are appended at the end of the existing course order (`DisplayOrder = count + 1`).
+- `ReorderLessons(courseId, IList<int>)` requires an exact, duplicate-free list of all lesson IDs for that course.
+- Reordering is atomic:
+  - begins database transaction
+  - updates each lesson's `DisplayOrder` via EF Core `ExecuteUpdateAsync`
+  - commits only after all updates succeed
+- Preview endpoint returns published preview lessons (`IsPreview && IsPublished`) so course discovery can happen without enrollment.
 
-- /gateway/auth/users/login -> /api/users/login (forwarded to Auth API)
-- /gateway/course/courses/published -> /api/courses/published (forwarded to Course API)
+## Configuration
+
+Primary configuration file:
+
+- `EduLearn.Content.API/appsettings.json`
+
+Required values:
+
+- `ConnectionStrings:DefaultConnection`
+- `Jwt:Key`
+- `Jwt:Issuer`
+- `Jwt:Audience`
+- `AzureStorage:ConnectionString`
+- `AzureStorage:ContainerName`
+- `AzureStorage:SasExpiryMinutes`
+
+Default local DB connection currently points to SQL Express:
+
+- `Server=localhost\\SQLEXPRESS;Database=EduLearn_Content_Db;Trusted_Connection=True;TrustServerCertificate=True`
+
+JWT rule:
+
+- `Jwt:Key`, `Jwt:Issuer`, and `Jwt:Audience` must match values issued by Auth API.
+
+Example local setup with user-secrets:
+
+```powershell
+cd .\edulearn-backend\EduLearn.Content.API
+dotnet user-secrets init
+dotnet user-secrets set "Jwt:Key" "your-32-plus-char-secret-key"
+dotnet user-secrets set "Jwt:Issuer" "EduLearnAuthAPI"
+dotnet user-secrets set "Jwt:Audience" "EduLearnAngularClient"
+dotnet user-secrets set "AzureStorage:ConnectionString" "UseDevelopmentStorage=true"
+dotnet user-secrets set "AzureStorage:ContainerName" "lesson-content"
+dotnet user-secrets set "AzureStorage:SasExpiryMinutes" "30"
+```
+
+SAS URL rule:
+
+- For Azure Blob content URLs under the configured storage account, lesson fetch responses return a temporary read SAS URL.
+- For non-blob external URLs (for example video platform links), the original URL is returned unchanged.
+
+## Database Migrations
+
+Create a new migration (when schema changes):
+
+```powershell
+cd .\edulearn-backend\EduLearn.Content.API
+dotnet ef migrations add <MigrationName>
+```
+
+Apply migrations to database:
+
+```powershell
+cd .\edulearn-backend\EduLearn.Content.API
+dotnet ef database update
+```
 
 ## Run the Service
 
 From repo root:
 
 ```powershell
-dotnet run --project .\edulearn-backend\Edulearn.Gateway.API\Edulearn.Gateway.API.csproj
+dotnet run --project .\edulearn-backend\EduLearn.Content.API\EduLearn.Content.API.csproj
 ```
 
 From service folder:
 
 ```powershell
-cd .\edulearn-backend\Edulearn.Gateway.API
+cd .\edulearn-backend\EduLearn.Content.API
 dotnet run
 ```
 
 Default local URL from launch profile:
 
-- http://localhost:5000
+- http://localhost:5176
 
-Optional HTTPS profile URL:
+## API Endpoints
 
-- https://localhost:7107
+Base route: `api/lessons`
 
-## Gateway Endpoints
+- `POST /api/lessons`
+- `GET /api/lessons/byId/{lessonId}`
+- `GET /api/lessons/byCourse/{courseId}`
+- `GET /api/lessons/ordered/{courseId}`
+- `GET /api/lessons/preview/{courseId}`
+- `PUT /api/lessons/update/{lessonId}`
+- `PUT /api/lessons/reorder/{courseId}`
+- `PUT /api/lessons/publish/{lessonId}`
+- `DELETE /api/lessons/lesson/{lessonId}`
+- `DELETE /api/lessons/allForCourse/{courseId}`
+- `GET /api/lessons/count/{courseId}`
 
-Gateway status endpoint:
+## Gateway Integration
 
-- GET /
-  - Response: EduLearn API Gateway is Running!
+Gateway route for Content API:
 
-Proxy entry paths:
+- Incoming: `/gateway/content/{**remainder}`
+- Forwarded path transform:
+  - remove prefix `/gateway/content`
+  - add prefix `/api/lessons`
+- Gateway destination: `http://localhost:5176/`
 
-- /gateway/auth/*
-- /gateway/course/*
+Example through gateway:
+
+- `GET http://localhost:5000/gateway/content/byCourse/1`
+
+Authorization matrix:
+
+- Anonymous:
+  - `GET /api/lessons/preview/{courseId}`
+- `INSTRUCTOR, ADMIN`:
+  - `POST /api/lessons`
+  - `PUT /api/lessons/update/{lessonId}`
+  - `PUT /api/lessons/reorder/{courseId}`
+  - `PUT /api/lessons/publish/{lessonId}`
+  - `DELETE /api/lessons/lesson/{lessonId}`
+  - `DELETE /api/lessons/allForCourse/{courseId}`
+- `INSTRUCTOR, ADMIN, STUDENT`:
+  - `GET /api/lessons/byId/{lessonId}`
+  - `GET /api/lessons/byCourse/{courseId}`
+  - `GET /api/lessons/ordered/{courseId}`
+  - `GET /api/lessons/count/{courseId}`
 
 ## Testing Guide
 
-Recommended local test flow:
+Quick local flow:
 
-1. Start Auth API.
-2. Start Course API.
-3. Start Gateway API.
-4. Verify gateway health endpoint.
-5. Call downstream APIs through gateway-prefixed routes.
+1. Start SQL Server/LocalDB.
+2. Start Content API.
+3. Use Swagger at `/swagger` in development.
+4. Create multiple lessons for a course.
+5. Reorder using `orderedLessonIds` payload and verify `ordered` endpoint.
+6. Publish selected lessons and verify `preview` endpoint only returns preview + published lessons.
 
-Sample test requests:
+Sample reorder payload:
 
-```http
-GET http://localhost:5000/
-
-GET http://localhost:5000/gateway/course/courses/published
-
-POST http://localhost:5000/gateway/auth/users/login
-Content-Type: application/json
-
+```json
 {
-  "email": "user@example.com",
-  "password": "your-password"
+  "orderedLessonIds": [3, 1, 2]
 }
 ```
-
-## Troubleshooting
-
-- 502 Bad Gateway
-  - verify downstream services are running on configured ports
-  - check cluster destination addresses in appsettings.json
-
-- 404 from downstream API
-  - verify forwarded path after transforms starts with /api
-  - confirm downstream endpoint exists
-
-- Connection refused
-  - check launch profile URL and request base URL
-  - ensure no port conflict on 5000 or 7107
 
 ## Build Commands
 
 ```powershell
-dotnet restore .\edulearn-backend\Edulearn.Gateway.API\Edulearn.Gateway.API.csproj
-dotnet build .\edulearn-backend\Edulearn.Gateway.API\Edulearn.Gateway.API.csproj
+dotnet restore .\edulearn-backend\EduLearn.Content.API\EduLearn.Content.API.csproj
+dotnet build .\edulearn-backend\EduLearn.Content.API\EduLearn.Content.API.csproj
 ```
 

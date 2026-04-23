@@ -1,0 +1,33 @@
+@EduLearn.Content.API_HostAddress = http://localhost:5176
+
+GET {{EduLearn.Content.API_HostAddress}}/api/lessons/byCourse/1
+Accept: application/json
+
+###
+
+GET {{EduLearn.Content.API_HostAddress}}/api/lessons/preview/1
+Accept: application/json
+
+###
+
+POST {{EduLearn.Content.API_HostAddress}}/api/lessons
+Content-Type: application/json
+
+{
+	"courseId": 1,
+	"title": "Intro to Cloud Security",
+	"description": "Overview lesson",
+	"contentType": "VIDEO",
+	"contentUrl": "https://example.com/video.mp4",
+	"durationMinutes": 12,
+	"isPreview": true
+}
+
+###
+
+PUT {{EduLearn.Content.API_HostAddress}}/api/lessons/reorder/1
+Content-Type: application/json
+
+{
+	"orderedLessonIds": [3, 1, 2]
+}
