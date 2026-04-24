@@ -1,0 +1,24 @@
+@EduLearn.Enrollment.API_HostAddress = http://localhost:5259
+@token = <jwt-token>
+
+POST {{EduLearn.Enrollment.API_HostAddress}}/api/enrollments/enroll/10
+Authorization: Bearer {{token}}
+Accept: application/json
+
+###
+
+PUT {{EduLearn.Enrollment.API_HostAddress}}/api/enrollments/progress/1
+Authorization: Bearer {{token}}
+Accept: application/json
+
+###
+
+PUT {{EduLearn.Enrollment.API_HostAddress}}/api/enrollments/complete/1
+Authorization: Bearer {{token}}
+Accept: application/json
+
+###
+
+GET {{EduLearn.Enrollment.API_HostAddress}}/api/enrollments/isEnrolled/10
+Authorization: Bearer {{token}}
+Accept: application/json

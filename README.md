@@ -1,6 +1,6 @@
-﻿# EduLearn Lesson / Content Service
+﻿# EduLearn Enrollment Service
 
-EduLearn Lesson / Content Service manages the ordered lesson list within each course. It supports content-driven rendering metadata, lesson publishing, preview access, and atomic reordering.
+EduLearn Enrollment Service manages the student-course relationship and enrollment lifecycle .
 
 ## Table of Contents
 
@@ -14,131 +14,134 @@ EduLearn Lesson / Content Service manages the ordered lesson list within each co
 - [Database Migrations](#database-migrations)
 - [Run the Service](#run-the-service)
 - [API Endpoints](#api-endpoints)
-- [Gateway Integration](#gateway-integration)
+- [Authorization Matrix](#authorization-matrix)
 - [Testing Guide](#testing-guide)
 - [Build Commands](#build-commands)
 
 ## Overview
 
-This microservice provides lesson/content management for courses:
+This microservice supports enrollment workflows:
 
-- Create, update, publish, and delete lessons
-- Retrieve lesson lists by course, ordered sequence, and preview visibility
-- Reorder lesson sequence with an ordered list of LessonIds
-- Return lesson counts per course
+- Enroll a student into a course
+- Prevent duplicate enrollment per student and course
+- Track progress percentage
+- Complete and drop enrollments
+- Issue certificate for completed enrollments
+- Query by student, by course, and enrollment count
 
 ## Features
 
 - Layered architecture: Controller -> Service -> Repository
-- EF Core entity for `Lesson`
-- ContentType support: `VIDEO`, `ARTICLE`, `PDF`, `QUIZ_LINK`
 - JWT authentication and role-based authorization
-- ContentUrl support for Azure Blob URLs (served as temporary SAS URLs) or external URLs
-- Atomic lesson reordering using transaction + `ExecuteUpdateAsync` loop
-- Preview lesson retrieval (`IsPreview = true`) for discovery use cases
+- Student identity extracted from token claims, not request body
+- Transactional enrollment flow with course count increment call
+- Progress update via IProgressService and formula calculation
+- Completion flow with quiz-pass gated certificate issuance
+- Explicit repository update flow for status/progress/completion/certificate state changes
 
 ## Tech Stack
 
 - .NET 10
 - ASP.NET Core Web API
 - Entity Framework Core + SQL Server
+- JWT Bearer Authentication
 - Swagger / OpenAPI (Swashbuckle)
-- Azure Storage Blobs SDK (for blob-oriented content workflows)
 
 ## Project Structure
 
-- Controllers/LessonController.cs: lesson endpoints
-- Services/ILessonService.cs: lesson service contract
-- Services/LessonService.cs: lesson business logic
-- Repositories/ILessonRepository.cs: data access contract
-- Repositories/LessonRepository.cs: EF Core data access implementation
-- Data/ContentDbContext.cs: DbContext and model configuration
-- Models/Lesson.cs: lesson entity
-- DTOs/: create/update/reorder/response contracts
+- Controllers/EnrollmentController.cs
+- Services/IEnrollmentService.cs
+- Services/EnrollmentService.cs
+- Services/ICourseService.cs
+- Services/CourseService.cs
+- Services/IProgressService.cs
+- Services/ProgressService.cs
+- Repositories/IEnrollmentRepository.cs
+- Repositories/EnrollmentRepository.cs
+- Data/EnrollmentDbContext.cs
+- Models/Enrollment.cs
+- DTOs/EnrollmentResponseDto.cs
 
 ## Data Model
 
-`Lesson` fields:
+Enrollment fields:
 
-- LessonId
+- EnrollmentId
+- StudentId
 - CourseId
-- Title
-- Description
-- ContentType (`VIDEO` / `ARTICLE` / `PDF` / `QUIZ_LINK`)
-- ContentUrl
-- DurationMinutes
-- DisplayOrder
-- IsPreview
-- IsPublished
-- CreatedAt
+- EnrolledAt
+- CompletedAt (nullable)
+- Status (ACTIVE, COMPLETED, DROPPED)
+- ProgressPercent (0-100)
+- LastAccessedAt (nullable)
+- CertificateIssued
+- PaymentId (nullable)
+
+Database constraints:
+
+- Unique index on (StudentId, CourseId)
+- Index on CourseId
+- Index on StudentId
 
 ## Business Rules
 
-- `ContentType` is validated against the allowed set.
-- `ContentUrl` must be an absolute URL.
-- New lessons are appended at the end of the existing course order (`DisplayOrder = count + 1`).
-- `ReorderLessons(courseId, IList<int>)` requires an exact, duplicate-free list of all lesson IDs for that course.
-- Reordering is atomic:
-  - begins database transaction
-  - updates each lesson's `DisplayOrder` via EF Core `ExecuteUpdateAsync`
-  - commits only after all updates succeed
-- Preview endpoint returns published preview lessons (`IsPreview && IsPublished`) so course discovery can happen without enrollment.
+- Enroll first checks IsEnrolled(studentId, courseId).
+- Duplicate active/completed enrollments are blocked.
+- StudentId is always derived from token claim ClaimTypes.NameIdentifier.
+- Enroll flow uses one transaction:
+  - create enrollment record
+  - call ICourseService.IncrementEnrollment(courseId)
+  - commit only if both steps succeed
+- UpdateProgress reads progress from IProgressService.GetCourseProgress and computes:
+
+  ProgressPercent = (completedLessons / totalLessons) * 100
+
+- CompleteEnrollment sets:
+  - Status = COMPLETED
+  - CompletedAt = now
+  - ProgressPercent = 100
+- If all quizzes are passed, certificate is issued.
+- DropCourse only applies to an ACTIVE enrollment and updates status to DROPPED.
+- Enrollment mutation updates are persisted through repository UpdateAsync + SaveChangesAsync.
 
 ## Configuration
 
-Primary configuration file:
+Primary file:
 
-- `EduLearn.Content.API/appsettings.json`
+- EduLearn.Enrollment.API/appsettings.json
 
 Required values:
 
-- `ConnectionStrings:DefaultConnection`
-- `Jwt:Key`
-- `Jwt:Issuer`
-- `Jwt:Audience`
-- `AzureStorage:ConnectionString`
-- `AzureStorage:ContainerName`
-- `AzureStorage:SasExpiryMinutes`
+- ConnectionStrings:DefaultConnection
+- Jwt:Key
+- Jwt:Issuer
+- Jwt:Audience
+- CourseApi:BaseUrl
 
-Default local DB connection currently points to SQL Express:
+Progress provider settings:
 
-- `Server=localhost\\SQLEXPRESS;Database=EduLearn_Content_Db;Trusted_Connection=True;TrustServerCertificate=True`
+- Progress:UseMock
+- Progress:MockCompletedLessons
+- Progress:MockTotalLessons
+- Progress:MockAllQuizzesPassed
 
-JWT rule:
-
-- `Jwt:Key`, `Jwt:Issuer`, and `Jwt:Audience` must match values issued by Auth API.
-
-Example local setup with user-secrets:
+Example user-secrets setup:
 
 ```powershell
-cd .\edulearn-backend\EduLearn.Content.API
+cd .\edulearn-backend\EduLearn.Enrollment.API
 dotnet user-secrets init
 dotnet user-secrets set "Jwt:Key" "your-32-plus-char-secret-key"
 dotnet user-secrets set "Jwt:Issuer" "EduLearnAuthAPI"
 dotnet user-secrets set "Jwt:Audience" "EduLearnAngularClient"
-dotnet user-secrets set "AzureStorage:ConnectionString" "UseDevelopmentStorage=true"
-dotnet user-secrets set "AzureStorage:ContainerName" "lesson-content"
-dotnet user-secrets set "AzureStorage:SasExpiryMinutes" "30"
 ```
-
-SAS URL rule:
-
-- For Azure Blob content URLs under the configured storage account, lesson fetch responses return a temporary read SAS URL.
-- For non-blob external URLs (for example video platform links), the original URL is returned unchanged.
 
 ## Database Migrations
 
-Create a new migration (when schema changes):
+From service folder:
 
 ```powershell
-cd .\edulearn-backend\EduLearn.Content.API
-dotnet ef migrations add <MigrationName>
-```
-
-Apply migrations to database:
-
-```powershell
-cd .\edulearn-backend\EduLearn.Content.API
+cd .\edulearn-backend\EduLearn.Enrollment.API
+dotnet ef migrations add InitialEnrollmentSchema
 dotnet ef database update
 ```
 
@@ -147,90 +150,59 @@ dotnet ef database update
 From repo root:
 
 ```powershell
-dotnet run --project .\edulearn-backend\EduLearn.Content.API\EduLearn.Content.API.csproj
+dotnet run --project .\edulearn-backend\EduLearn.Enrollment.API\EduLearn.Enrollment.API.csproj
 ```
 
 From service folder:
 
 ```powershell
-cd .\edulearn-backend\EduLearn.Content.API
+cd .\edulearn-backend\EduLearn.Enrollment.API
 dotnet run
 ```
 
-Default local URL from launch profile:
-
-- http://localhost:5176
-
 ## API Endpoints
 
-Base route: `api/lessons`
+Base route: api/enrollments
 
-- `POST /api/lessons`
-- `GET /api/lessons/byId/{lessonId}`
-- `GET /api/lessons/byCourse/{courseId}`
-- `GET /api/lessons/ordered/{courseId}`
-- `GET /api/lessons/preview/{courseId}`
-- `PUT /api/lessons/update/{lessonId}`
-- `PUT /api/lessons/reorder/{courseId}`
-- `PUT /api/lessons/publish/{lessonId}`
-- `DELETE /api/lessons/lesson/{lessonId}`
-- `DELETE /api/lessons/allForCourse/{courseId}`
-- `GET /api/lessons/count/{courseId}`
+- POST /api/enrollments/enroll/{courseId}
+- GET /api/enrollments/byId/{id}
+- GET /api/enrollments/byStudent/{studentId}
+- GET /api/enrollments/byCourse/{courseId}
+- GET /api/enrollments/isEnrolled/{courseId}
+- PUT /api/enrollments/progress/{enrollmentId}
+- POST /api/enrollments/complete/{courseId}
+- PUT /api/enrollments/issueCert/{enrollmentId}
+- POST /api/enrollments/drop/{courseId}
+- GET /api/enrollments/completed/{studentId}
+- GET /api/enrollments/inProgress/{studentId}
+- GET /api/enrollments/count/{courseId}
 
-## Gateway Integration
+## Authorization Matrix
 
-Gateway route for Content API:
-
-- Incoming: `/gateway/content/{**remainder}`
-- Forwarded path transform:
-  - remove prefix `/gateway/content`
-  - add prefix `/api/lessons`
-- Gateway destination: `http://localhost:5176/`
-
-Example through gateway:
-
-- `GET http://localhost:5000/gateway/content/byCourse/1`
-
-Authorization matrix:
-
-- Anonymous:
-  - `GET /api/lessons/preview/{courseId}`
-- `INSTRUCTOR, ADMIN`:
-  - `POST /api/lessons`
-  - `PUT /api/lessons/update/{lessonId}`
-  - `PUT /api/lessons/reorder/{courseId}`
-  - `PUT /api/lessons/publish/{lessonId}`
-  - `DELETE /api/lessons/lesson/{lessonId}`
-  - `DELETE /api/lessons/allForCourse/{courseId}`
-- `INSTRUCTOR, ADMIN, STUDENT`:
-  - `GET /api/lessons/byId/{lessonId}`
-  - `GET /api/lessons/byCourse/{courseId}`
-  - `GET /api/lessons/ordered/{courseId}`
-  - `GET /api/lessons/count/{courseId}`
+- STUDENT:
+  - complete, drop
+- STUDENT, ADMIN:
+  - enroll, update progress, student-specific query endpoints
+- INSTRUCTOR, ADMIN:
+  - byCourse, count
+- ADMIN:
+  - issue certificate
 
 ## Testing Guide
 
-Quick local flow:
+Quick local validation:
 
-1. Start SQL Server/LocalDB.
-2. Start Content API.
-3. Use Swagger at `/swagger` in development.
-4. Create multiple lessons for a course.
-5. Reorder using `orderedLessonIds` payload and verify `ordered` endpoint.
-6. Publish selected lessons and verify `preview` endpoint only returns preview + published lessons.
-
-Sample reorder payload:
-
-```json
-{
-  "orderedLessonIds": [3, 1, 2]
-}
-```
+1. Configure JWT values to match Auth API.
+2. Run Course API and Enrollment API.
+3. Enroll with student token.
+4. Re-enroll same course and verify duplicate rejection.
+5. Update progress and verify ProgressPercent formula.
+6. Complete enrollment and verify certificate issuance when quizzes are passed.
 
 ## Build Commands
 
 ```powershell
-dotnet restore .\edulearn-backend\EduLearn.Content.API\EduLearn.Content.API.csproj
-dotnet build .\edulearn-backend\EduLearn.Content.API\EduLearn.Content.API.csproj
+dotnet restore .\edulearn-backend\EduLearn.Enrollment.API\EduLearn.Enrollment.API.csproj
+dotnet build .\edulearn-backend\EduLearn.Enrollment.API\EduLearn.Enrollment.API.csproj
 ```
 
