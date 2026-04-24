@@ -12,5 +12,6 @@ public class Lesson
     public int DisplayOrder { get; set; }
     public bool IsPreview { get; set; }
     public bool IsPublished { get; set; }
+    public bool IsCompleted { get; set; }
     public DateTime CreatedAt { get; set; }
 }

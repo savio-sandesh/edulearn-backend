@@ -13,6 +13,7 @@ public interface ILessonRepository
     Task<IReadOnlyList<Lesson>> FindPreviewLessonsAsync(int courseId);
     Task<int> CountByCourseIdAsync(int courseId);
     Task<int> UpdateDisplayOrderAsync(int lessonId, int displayOrder);
+    Task UpdateAsync(Lesson lesson);
     Task SaveChangesAsync();
     Task<bool> DeleteByLessonIdAsync(int lessonId);
     Task DeleteByCourseIdAsync(int courseId);

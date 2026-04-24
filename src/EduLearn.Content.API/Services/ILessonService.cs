@@ -12,6 +12,8 @@ public interface ILessonService
     Task<LessonResponseDto?> UpdateLessonAsync(int lessonId, LessonUpdateDto lesson);
     Task ReorderLessonsAsync(int courseId, IList<int> orderedLessonIds);
     Task<bool> PublishLessonAsync(int lessonId);
+    Task<bool> IsPremiumLessonAsync(int lessonId);
+    Task<bool> CompleteLessonAsync(int lessonId);
     Task<bool> DeleteLessonAsync(int lessonId);
     Task DeleteAllForCourseAsync(int courseId);
     Task<int> GetLessonCountAsync(int courseId);

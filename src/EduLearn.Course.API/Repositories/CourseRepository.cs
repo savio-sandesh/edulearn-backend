@@ -124,6 +124,12 @@ namespace EduLearn.Course.API.Repositories
             await _context.Courses.AddAsync(course);
         }
 
+        public Task UpdateAsync(CourseModel course)
+        {
+            _context.Courses.Update(course);
+            return Task.CompletedTask;
+        }
+
         public async Task SaveChangesAsync()
         {
             await _context.SaveChangesAsync();

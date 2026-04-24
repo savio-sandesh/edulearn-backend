@@ -17,6 +17,11 @@ namespace EduLearn.Course.API.Services
 
         public async Task<CourseResponseDto> CreateCourseAsync(CourseCreateDto courseDto, int currentUserId)
         {
+            if (string.IsNullOrWhiteSpace(courseDto.Title))
+            {
+                throw new ArgumentException("Title is required.");
+            }
+
             var course = MapToEntity(courseDto);
             course.Level = NormalizeLevel(course.Level);
             course.Category = await NormalizeAndValidateCategoryAsync(course.Category);
@@ -121,6 +126,12 @@ namespace EduLearn.Course.API.Services
 
             EnsureCanModifyCourse(course, currentUserId, isAdmin);
 
+            // Keep publication safe: courses with no lesson material should not be publishable.
+            if (course.TotalDuration <= 0)
+            {
+                return false;
+            }
+
             course.IsPublished = true;
             course.UpdatedAt = DateTime.UtcNow;
             await _courseRepository.SaveChangesAsync();
@@ -189,7 +200,10 @@ namespace EduLearn.Course.API.Services
                 return false;
             }
 
-            await _courseRepository.IncrementEnrollmentAsync(courseId);
+            course.EnrollmentCount += 1;
+            course.UpdatedAt = DateTime.UtcNow;
+            await _courseRepository.UpdateAsync(course);
+            await _courseRepository.SaveChangesAsync();
             return true;
         }
 

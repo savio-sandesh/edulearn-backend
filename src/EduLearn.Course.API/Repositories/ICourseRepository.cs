@@ -18,6 +18,7 @@ namespace EduLearn.Course.API.Repositories
         Task AddReviewAsync(Review review);
 
         Task AddAsync(CourseModel course);
+        Task UpdateAsync(CourseModel course);
         Task SaveChangesAsync();
         Task<bool> DeleteByIdAsync(int courseId);
     }

@@ -128,7 +128,7 @@ Progress provider settings:
 Example user-secrets setup:
 
 ```powershell
-cd .\edulearn-backend\EduLearn.Enrollment.API
+cd .\edulearn-backend\src\EduLearn.Enrollment.API
 dotnet user-secrets init
 dotnet user-secrets set "Jwt:Key" "your-32-plus-char-secret-key"
 dotnet user-secrets set "Jwt:Issuer" "EduLearnAuthAPI"
@@ -140,7 +140,7 @@ dotnet user-secrets set "Jwt:Audience" "EduLearnAngularClient"
 From service folder:
 
 ```powershell
-cd .\edulearn-backend\EduLearn.Enrollment.API
+cd .\edulearn-backend\src\EduLearn.Enrollment.API
 dotnet ef migrations add InitialEnrollmentSchema
 dotnet ef database update
 ```
@@ -150,13 +150,13 @@ dotnet ef database update
 From repo root:
 
 ```powershell
-dotnet run --project .\edulearn-backend\EduLearn.Enrollment.API\EduLearn.Enrollment.API.csproj
+dotnet run --project .\edulearn-backend\src\EduLearn.Enrollment.API\EduLearn.Enrollment.API.csproj
 ```
 
 From service folder:
 
 ```powershell
-cd .\edulearn-backend\EduLearn.Enrollment.API
+cd .\edulearn-backend\src\EduLearn.Enrollment.API
 dotnet run
 ```
 
@@ -199,10 +199,13 @@ Quick local validation:
 5. Update progress and verify ProgressPercent formula.
 6. Complete enrollment and verify certificate issuance when quizzes are passed.
 
+For Content test project:
+- tests/EduLearn.Content.Tests
+
 ## Build Commands
 
 ```powershell
-dotnet restore .\edulearn-backend\EduLearn.Enrollment.API\EduLearn.Enrollment.API.csproj
-dotnet build .\edulearn-backend\EduLearn.Enrollment.API\EduLearn.Enrollment.API.csproj
+dotnet restore .\edulearn-backend\src\EduLearn.Enrollment.API\EduLearn.Enrollment.API.csproj
+dotnet build .\edulearn-backend\src\EduLearn.Enrollment.API\EduLearn.Enrollment.API.csproj
 ```
 

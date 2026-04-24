@@ -141,6 +141,31 @@ public class LessonService : ILessonService
         return true;
     }
 
+    public async Task<bool> IsPremiumLessonAsync(int lessonId)
+    {
+        var lesson = await _lessonRepository.FindByLessonIdAsync(lessonId);
+        if (lesson == null)
+        {
+            return false;
+        }
+
+        return !lesson.IsPreview;
+    }
+
+    public async Task<bool> CompleteLessonAsync(int lessonId)
+    {
+        var lesson = await _lessonRepository.FindByLessonIdAsync(lessonId);
+        if (lesson == null)
+        {
+            return false;
+        }
+
+        lesson.IsCompleted = true;
+        await _lessonRepository.UpdateAsync(lesson);
+        await _lessonRepository.SaveChangesAsync();
+        return true;
+    }
+
     public async Task<bool> DeleteLessonAsync(int lessonId)
     {
         return await _lessonRepository.DeleteByLessonIdAsync(lessonId);

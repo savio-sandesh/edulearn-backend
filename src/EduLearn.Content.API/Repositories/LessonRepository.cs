@@ -67,6 +67,12 @@ public class LessonRepository : ILessonRepository
                 .SetProperty(x => x.DisplayOrder, displayOrder));
     }
 
+    public Task UpdateAsync(Lesson lesson)
+    {
+        _dbContext.Lessons.Update(lesson);
+        return Task.CompletedTask;
+    }
+
     public async Task SaveChangesAsync()
     {
         await _dbContext.SaveChangesAsync();
