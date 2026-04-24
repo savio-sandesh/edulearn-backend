@@ -1,6 +1,6 @@
-﻿# EduLearn Enrollment Service
+﻿# EduLearn Backend
 
-EduLearn Enrollment Service manages the student-course relationship and enrollment lifecycle .
+This backend workspace contains the EduLearn microservices and shared contracts.
 
 ## Table of Contents
 
@@ -20,7 +20,7 @@ EduLearn Enrollment Service manages the student-course relationship and enrollme
 
 ## Overview
 
-This microservice supports enrollment workflows:
+This microservice set supports enrollment workflows:
 
 - Enroll a student into a course
 - Prevent duplicate enrollment per student and course
@@ -28,6 +28,7 @@ This microservice supports enrollment workflows:
 - Complete and drop enrollments
 - Issue certificate for completed enrollments
 - Query by student, by course, and enrollment count
+- Publish and consume course completion events with RabbitMQ
 
 ## Features
 
@@ -38,6 +39,8 @@ This microservice supports enrollment workflows:
 - Progress update via IProgressService and formula calculation
 - Completion flow with quiz-pass gated certificate issuance
 - Explicit repository update flow for status/progress/completion/certificate state changes
+- Shared contract library for cross-service messaging
+- MassTransit + RabbitMQ event flow for enrollment completion notifications
 
 ## Tech Stack
 
@@ -45,22 +48,25 @@ This microservice supports enrollment workflows:
 - ASP.NET Core Web API
 - Entity Framework Core + SQL Server
 - JWT Bearer Authentication
+- MassTransit + RabbitMQ
 - Swagger / OpenAPI (Swashbuckle)
+
+Compatibility note:
+
+- `MassTransit.RabbitMQ` is pinned to `8.5.1` in Enrollment and Content services to avoid the v9 runtime license requirement in local dev.
 
 ## Project Structure
 
-- Controllers/EnrollmentController.cs
-- Services/IEnrollmentService.cs
-- Services/EnrollmentService.cs
-- Services/ICourseService.cs
-- Services/CourseService.cs
-- Services/IProgressService.cs
-- Services/ProgressService.cs
-- Repositories/IEnrollmentRepository.cs
-- Repositories/EnrollmentRepository.cs
-- Data/EnrollmentDbContext.cs
-- Models/Enrollment.cs
-- DTOs/EnrollmentResponseDto.cs
+- src/EduLearn.Auth.API
+- src/EduLearn.Content.API
+- src/EduLearn.Course.API
+- src/EduLearn.Enrollment.API
+- src/EduLearn.Gateway.API
+- src/EduLearn.Shared
+- tests/EduLearn.Auth.Tests
+- tests/EduLearn.Content.Tests
+- tests/EduLearn.Course.Tests
+- tests/EduLearn.Enrollment.Tests
 
 ## Data Model
 
@@ -103,12 +109,13 @@ Database constraints:
 - If all quizzes are passed, certificate is issued.
 - DropCourse only applies to an ACTIVE enrollment and updates status to DROPPED.
 - Enrollment mutation updates are persisted through repository UpdateAsync + SaveChangesAsync.
+- Enrollment completion publishes a course-completed event after persistence.
 
 ## Configuration
 
 Primary file:
 
-- EduLearn.Enrollment.API/appsettings.json
+- src/EduLearn.Enrollment.API/appsettings.json
 
 Required values:
 
@@ -117,6 +124,8 @@ Required values:
 - Jwt:Issuer
 - Jwt:Audience
 - CourseApi:BaseUrl
+- RabbitMQ host: localhost
+- RabbitMQ username/password: guest / guest
 
 Progress provider settings:
 

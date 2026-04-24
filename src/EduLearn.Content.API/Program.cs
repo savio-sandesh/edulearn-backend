@@ -1,11 +1,15 @@
 using EduLearn.Content.API.Data;
+using EduLearn.Content.API.Consumers;
 using EduLearn.Content.API.Repositories;
 using EduLearn.Content.API.Services;
+using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using System.Text;
+
+Environment.SetEnvironmentVariable("MT_LICENSE", "Discord");
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,6 +19,24 @@ builder.Services.AddDbContext<ContentDbContext>(options =>
 builder.Services.AddScoped<ILessonRepository, LessonRepository>();
 builder.Services.AddScoped<ILessonService, LessonService>();
 builder.Services.AddScoped<IBlobService, BlobService>();
+
+builder.Services.AddMassTransit(x =>
+{
+    x.SetKebabCaseEndpointNameFormatter();
+
+    x.AddConsumer<CourseCompletedConsumer>();
+
+    x.UsingRabbitMq((context, cfg) =>
+    {
+        cfg.Host("localhost", "/", h =>
+        {
+            h.Username("guest");
+            h.Password("guest");
+        });
+
+        cfg.ConfigureEndpoints(context);
+    });
+});
 
 var jwtSettings = builder.Configuration.GetSection("Jwt");
 var jwtKey = GetRequiredJwtValue(jwtSettings, "Key");

@@ -1,0 +1,10 @@
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: edulearn-rabbitmq
+    ports:
+      - "5672:5672"   # RabbitMQ default port (Code communication ke liye)
+      - "15672:15672" # RabbitMQ Dashboard (Humaare dekhne ke liye)
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest

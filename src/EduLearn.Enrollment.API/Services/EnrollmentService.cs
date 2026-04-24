@@ -1,6 +1,8 @@
 using EduLearn.Enrollment.API.DTOs;
 using EduLearn.Enrollment.API.Models;
 using EduLearn.Enrollment.API.Repositories;
+using EduLearn.Shared;
+using MassTransit;
 
 namespace EduLearn.Enrollment.API.Services;
 
@@ -9,15 +11,18 @@ public class EnrollmentService : IEnrollmentService
     private readonly IEnrollmentRepository _enrollmentRepository;
     private readonly ICourseService _courseService;
     private readonly IProgressService _progressService;
+    private readonly IPublishEndpoint _publishEndpoint;
 
     public EnrollmentService(
         IEnrollmentRepository enrollmentRepository,
         ICourseService courseService,
-        IProgressService progressService)
+        IProgressService progressService,
+        IPublishEndpoint publishEndpoint)
     {
         _enrollmentRepository = enrollmentRepository;
         _courseService = courseService;
         _progressService = progressService;
+        _publishEndpoint = publishEndpoint;
     }
 
     public async Task<EnrollmentResponseDto> EnrollAsync(int studentId, int courseId)
@@ -108,6 +113,14 @@ public class EnrollmentService : IEnrollmentService
 
         await _enrollmentRepository.UpdateAsync(enrollment);
         await _enrollmentRepository.SaveChangesAsync();
+
+        await _publishEndpoint.Publish(new CourseCompletedEvent
+        {
+            EnrollmentId = Guid.NewGuid(),
+            StudentId = studentId,
+            CourseId = courseId,
+            CompletedAt = enrollment.CompletedAt ?? DateTime.UtcNow
+        });
 
         if (progress.AllQuizzesPassed)
         {
