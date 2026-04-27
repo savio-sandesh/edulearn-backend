@@ -58,6 +58,26 @@ public class QuizRepository : IQuizRepository
             .FirstOrDefaultAsync();
     }
 
+    public async Task<int> CountPublishedQuizzesByCourse(int courseId)
+    {
+        return await _dbContext.Quizzes
+            .Where(q => q.CourseId == courseId && q.IsPublished)
+            .CountAsync();
+    }
+
+    public async Task<int> CountDistinctPassedQuizzesByStudentForCourse(int studentId, int courseId)
+    {
+        return await _dbContext.QuizAttempts
+            .Where(a => a.StudentId == studentId && a.IsPassed)
+            .Join(
+                _dbContext.Quizzes.Where(q => q.CourseId == courseId && q.IsPublished),
+                attempt => attempt.QuizId,
+                quiz => quiz.QuizId,
+                (attempt, quiz) => attempt.QuizId)
+            .Distinct()
+            .CountAsync();
+    }
+
     public async Task AddQuiz(Quiz quiz)
     {
         await _dbContext.Quizzes.AddAsync(quiz);

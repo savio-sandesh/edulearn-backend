@@ -1,16 +1,20 @@
 using System.Text.Json;
 using EduLearn.Assessment.API.Models;
 using EduLearn.Assessment.API.Repositories;
+using EduLearn.Shared;
+using MassTransit;
 
 namespace EduLearn.Assessment.API.Services;
 
 public class QuizService : IQuizService
 {
     private readonly IQuizRepository _quizRepository;
+    private readonly IPublishEndpoint? _publishEndpoint;
 
-    public QuizService(IQuizRepository quizRepository)
+    public QuizService(IQuizRepository quizRepository, IPublishEndpoint? publishEndpoint = null)
     {
         _quizRepository = quizRepository;
+        _publishEndpoint = publishEndpoint;
     }
 
     public async Task<Quiz> CreateQuiz(Quiz quiz)
@@ -133,6 +137,8 @@ public class QuizService : IQuizService
         var quiz = await _quizRepository.FindByQuizId(attempt.QuizId)
             ?? throw new InvalidOperationException("Quiz not found for attempt.");
 
+        var wasCourseCompletedBefore = await IsCourseCompleted(attempt.StudentId, quiz.CourseId);
+
         var correctAnswers = DeserializeAnswers(quiz.QuestionsJson);
         var submittedAnswers = answers ?? new Dictionary<int, string>();
         var serializedAnswers = JsonSerializer.Serialize(submittedAnswers);
@@ -146,6 +152,22 @@ public class QuizService : IQuizService
         attempt.SubmittedAt = submittedAt;
 
         await _quizRepository.SaveChanges();
+
+        if (attempt.IsPassed && !wasCourseCompletedBefore)
+        {
+            var isCourseCompletedNow = await IsCourseCompleted(attempt.StudentId, quiz.CourseId);
+            if (isCourseCompletedNow && _publishEndpoint != null)
+            {
+                await _publishEndpoint.Publish<ICourseCompletedEvent>(new CourseCompletedEvent
+                {
+                    EnrollmentId = Guid.NewGuid(),
+                    StudentId = attempt.StudentId,
+                    CourseId = quiz.CourseId,
+                    CompletedAt = DateTime.UtcNow
+                });
+            }
+        }
+
         return attempt;
     }
 
@@ -209,5 +231,17 @@ public class QuizService : IQuizService
 
         // Validate JSON shape early to prevent invalid scoring payloads.
         _ = DeserializeAnswers(quiz.QuestionsJson);
+    }
+
+    private async Task<bool> IsCourseCompleted(int studentId, int courseId)
+    {
+        var publishedQuizCount = await _quizRepository.CountPublishedQuizzesByCourse(courseId);
+        if (publishedQuizCount == 0)
+        {
+            return false;
+        }
+
+        var passedQuizCount = await _quizRepository.CountDistinctPassedQuizzesByStudentForCourse(studentId, courseId);
+        return passedQuizCount >= publishedQuizCount;
     }
 }

@@ -12,6 +12,8 @@ public interface IQuizRepository
     Task<QuizAttempt?> FindAttemptById(int attemptId);
     Task<int> CountAttempts(int studentId, int quizId);
     Task<QuizAttempt?> FindBestAttempt(int studentId, int quizId);
+    Task<int> CountPublishedQuizzesByCourse(int courseId);
+    Task<int> CountDistinctPassedQuizzesByStudentForCourse(int studentId, int courseId);
 
     Task AddQuiz(Quiz quiz);
     Task DeleteQuiz(Quiz quiz);

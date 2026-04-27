@@ -1,12 +1,15 @@
 using EduLearn.Assessment.API.Data;
 using EduLearn.Assessment.API.Repositories;
 using EduLearn.Assessment.API.Services;
+using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using System.Text;
 using System.Text.Json.Serialization;
+
+Environment.SetEnvironmentVariable("MT_LICENSE", "Discord");
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,6 +18,25 @@ builder.Services.AddDbContext<AssessmentDbContext>(options =>
 
 builder.Services.AddScoped<IQuizRepository, QuizRepository>();
 builder.Services.AddScoped<IQuizService, QuizService>();
+
+builder.Services.AddMassTransit(x =>
+{
+	x.SetKebabCaseEndpointNameFormatter();
+
+	x.UsingRabbitMq((context, cfg) =>
+	{
+		cfg.Host(
+			builder.Configuration["RabbitMQ:Host"] ?? "localhost",
+			builder.Configuration["RabbitMQ:VirtualHost"] ?? "/",
+			h =>
+			{
+				h.Username(builder.Configuration["RabbitMQ:Username"] ?? "guest");
+				h.Password(builder.Configuration["RabbitMQ:Password"] ?? "guest");
+			});
+
+		cfg.ConfigureEndpoints(context);
+	});
+});
 
 var jwtSettings = builder.Configuration.GetSection("Jwt");
 var jwtKey = GetRequiredJwtValue(jwtSettings, "Key");
