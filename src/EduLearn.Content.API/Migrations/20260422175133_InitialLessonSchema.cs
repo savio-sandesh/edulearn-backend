@@ -26,6 +26,7 @@ namespace EduLearn.Content.API.Migrations
                     DisplayOrder = table.Column<int>(type: "int", nullable: false),
                     IsPreview = table.Column<bool>(type: "bit", nullable: false),
                     IsPublished = table.Column<bool>(type: "bit", nullable: false),
+                    IsCompleted = table.Column<bool>(type: "bit", nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false)
                 },
                 constraints: table =>

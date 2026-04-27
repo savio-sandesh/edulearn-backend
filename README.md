@@ -1,6 +1,6 @@
-﻿# EduLearn Progress / Certificate Service
+﻿# EduLearn Review API
 
-EduLearn Progress / Certificate Service handles lesson-progress records and certificate issuance. It consumes course completion events from RabbitMQ and generates PDF certificates using QuestPDF.
+EduLearn Review API is a dedicated microservice for course reviews and rating moderation.
 
 ## Table of Contents
 
@@ -8,220 +8,232 @@ EduLearn Progress / Certificate Service handles lesson-progress records and cert
 - [Features](#features)
 - [Tech Stack](#tech-stack)
 - [Project Structure](#project-structure)
-- [Data Model](#data-model)
-- [Event Flow](#event-flow)
+- [Domain Model](#domain-model)
+- [Database Constraints](#database-constraints)
+- [Core Service Logic](#core-service-logic)
+- [Authentication and Authorization](#authentication-and-authorization)
 - [Configuration](#configuration)
 - [Database Migrations](#database-migrations)
 - [Run the Service](#run-the-service)
 - [API Endpoints](#api-endpoints)
-- [Testing Guide](#testing-guide)
+- [Local Testing Flow](#local-testing-flow)
+- [Automated Tests](#automated-tests)
 - [Build Commands](#build-commands)
 
 ## Overview
 
-This microservice provides progress/certificate management:
+This service handles the review lifecycle for courses:
 
-- stores lesson-level completion records
-- stores issued certificate records
-- consumes `ICourseCompletedEvent` messages via MassTransit
-- generates PDF certificates and stores generated URL/path reference
+- students can submit ratings and comments for courses they are enrolled in
+- admins can approve reviews for public visibility
+- public consumers can read approved reviews and course average ratings
 
 ## Features
 
-- Layered architecture: Controller -> Service -> Consumer -> Data
-- EF Core entities for `LessonProgress` and `Certificate`
-- MassTransit + RabbitMQ consumer (`CourseCompletedConsumer`)
-- QuestPDF-based certificate generation
-- JWT authentication and role-based authorization
-- debug endpoint for local certificate generation verification
-- avatar image rendering from Azure Blob URL with `wwwroot/images/default-avatar.png` fallback
-- static file mapping for generated certificates under `/certificates`
-- certificate download endpoint that returns PDF as attachment
+- layered architecture: Controller -> Service -> Repository -> DbContext
+- enrollment validation before review creation
+- duplicate-review prevention at service and database level
+- admin moderation with bulk update via Entity Framework ExecuteUpdateAsync
+- approved-only public read endpoints
+- average rating computation based only on approved reviews
+- JWT bearer authentication with role-based authorization
+- Swagger with bearer token support
 
 ## Tech Stack
 
 - .NET 10
 - ASP.NET Core Web API
 - Entity Framework Core + SQL Server
-- MassTransit + RabbitMQ
-- QuestPDF
+- JWT Bearer Authentication
 - Swagger / OpenAPI (Swashbuckle)
 
 ## Project Structure
 
-- Controllers/ProgressController.cs: read endpoints for lesson progress and certificates
-- Controllers/CertificateDebugController.cs: local debug endpoint for generating PDF certificate and persisting certificate metadata
-- Services/ICertificateService.cs: certificate generation contract
-- Services/CertificateService.cs: QuestPDF implementation
-- Consumers/CourseCompletedConsumer.cs: event consumer for `ICourseCompletedEvent`
-- Data/ProgressDbContext.cs: DbContext and model constraints/indexes
-- Data/ProgressDbContextFactory.cs: design-time factory for EF migrations
-- Models/LessonProgress.cs: lesson progress entity
-- Models/Certificate.cs: certificate entity
+- src/EduLearn.Review.API/Controllers/ReviewController.cs: API endpoints
+- src/EduLearn.Review.API/Services/ReviewService.cs: review business logic
+- src/EduLearn.Review.API/Services/EnrollmentServiceClient.cs: integration with Enrollment API
+- src/EduLearn.Review.API/Repositories/ReviewRepository.cs: data access and query operations
+- src/EduLearn.Review.API/Data/ReviewDbContext.cs: EF Core model configuration and constraints
+- src/EduLearn.Review.API/Data/ReviewDbContextFactory.cs: design-time factory for EF migrations
+- src/EduLearn.Review.API/Models/Review.cs: review entity
+- src/EduLearn.Review.API/DTOs/: request and response contracts
+- src/EduLearn.Review.API/Program.cs: dependency injection, auth, middleware, Swagger
 
-## Data Model
+## Domain Model
 
-`LessonProgress` fields:
+Review entity fields:
 
-- Id
-- StudentId
+- ReviewId
 - CourseId
-- LessonId
-- IsCompleted
-- CompletedAt (nullable)
-- ProgressPercent
-
-`Certificate` fields:
-
-- Id
 - StudentId
-- CourseId
-- CertificateUrl
-- IssuedAt
-- VerificationCode
+- Rating (1..5)
+- Comment
+- IsApproved (default false)
+- CreatedAt (UTC)
 
-Indexes/constraints:
+## Database Constraints
 
-- unique index on `LessonProgress(StudentId, CourseId, LessonId)`
-- unique index on `Certificate(VerificationCode)`
-- unique index on `Certificate(StudentId, CourseId)`
+Configured in ReviewDbContext:
 
-## Event Flow
+- unique index on (CourseId, StudentId)
+- check constraint CK_Review_Rating enforcing Rating >= 1 AND Rating <= 5
+- default value false for IsApproved
 
-1. Another service publishes `ICourseCompletedEvent`.
-2. Progress API consumer receives the event.
-3. Consumer checks if certificate already exists for that student/course.
-4. If missing, service generates PDF certificate via QuestPDF.
-5. Certificate metadata is saved to SQL Server.
+These constraints ensure data integrity even under concurrent requests.
+
+## Core Service Logic
+
+AddReviewAsync:
+
+- validates enrollment via Enrollment API
+- checks if student already reviewed the same course
+- creates review with IsApproved = false and UTC CreatedAt
+- handles DbUpdateException as duplicate submission protection fallback
+
+ApproveReviewAsync:
+
+- admin moderation action
+- uses ExecuteUpdateAsync to set IsApproved = true without loading entity
+
+GetAverageRatingAsync:
+
+- computes average only from approved reviews
+- returns 0 when no approved reviews exist for a course
+
+## Authentication and Authorization
+
+JWT bearer authentication is required for protected routes.
+
+Role policies:
+
+- STUDENT: can create reviews
+- ADMIN: can approve reviews
+- anonymous: can read approved reviews and average rating
+
+User identity for submission is read from ClaimTypes.NameIdentifier.
 
 ## Configuration
 
-Primary configuration file:
+Primary config file:
 
-- `src/EduLearn.Progress.API/appsettings.json`
+- src/EduLearn.Review.API/appsettings.json
 
-Required values:
+Required settings:
 
-- `ConnectionStrings:DefaultConnection`
-- `Jwt:Key`
-- `Jwt:Issuer`
-- `Jwt:Audience`
-- `RabbitMQ:Host`
-- `RabbitMQ:VirtualHost`
-- `RabbitMQ:Username`
-- `RabbitMQ:Password`
+- ConnectionStrings:DefaultConnection
+- Jwt:Key
+- Jwt:Issuer
+- Jwt:Audience
+- EnrollmentApi:BaseUrl
 
-Optional values:
+Default local values:
 
-- `Certificate:OutputDirectory` (default local usage is `C:\Temp`)
-- `Avatar:BlobUrlTemplate` (optional; use `{studentId}` placeholder)
+- SQL Server database: EduLearn_Review_Db
+- Enrollment API base URL: http://localhost:5114
 
-Default local DB connection:
-
-- `Server=localhost\SQLEXPRESS;Database=EduLearn_Progress_Db;Trusted_Connection=True;TrustServerCertificate=True`
-
-JWT rule:
-
-- `Jwt:Key`, `Jwt:Issuer`, and `Jwt:Audience` must match values issued by Auth API.
-
-Example local setup with user-secrets:
+Set secure JWT values for local development:
 
 ```powershell
-cd .\edulearn-backend\src\EduLearn.Progress.API
+cd .\edulearn-backend\src\EduLearn.Review.API
 dotnet user-secrets init
 dotnet user-secrets set "Jwt:Key" "your-32-plus-char-secret-key"
 dotnet user-secrets set "Jwt:Issuer" "EduLearnAuthAPI"
 dotnet user-secrets set "Jwt:Audience" "EduLearnAngularClient"
 ```
 
-QuestPDF license setup:
-
-- startup sets `QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;`
-
 ## Database Migrations
 
-Create a new migration (when schema changes):
+Create migration:
 
 ```powershell
-cd .\edulearn-backend\src\EduLearn.Progress.API
-dotnet ef migrations add <MigrationName>
+cd .\edulearn-backend\src\EduLearn.Review.API
+dotnet ef migrations add InitialReviewSchema
 ```
 
-Apply migrations to database:
+Apply migration:
 
 ```powershell
-dotnet ef database update --project .\src\EduLearn.Progress.API --startup-project .\src\EduLearn.Progress.API
+dotnet ef database update --project .\src\EduLearn.Review.API --startup-project .\src\EduLearn.Review.API
 ```
 
 ## Run the Service
 
-From repo root:
+From repository root:
 
 ```powershell
-dotnet run --project .\edulearn-backend\src\EduLearn.Progress.API\EduLearn.Progress.API.csproj
+dotnet run --project .\edulearn-backend\src\EduLearn.Review.API\EduLearn.Review.API.csproj
 ```
 
 From service folder:
 
 ```powershell
-cd .\edulearn-backend\src\EduLearn.Progress.API
+cd .\edulearn-backend\src\EduLearn.Review.API
 dotnet run
 ```
 
-Default local URL from launch profile:
+Default launch URL:
 
-- http://localhost:5218
+- http://localhost:5144
 
 ## API Endpoints
 
-Base route: `api/progress`
+Base route: api/reviews
 
-- `GET /api/progress/lesson-progress`
-- `GET /api/progress/lesson-progress/{id}`
-- `POST /api/progress/mark-complete`
-- `GET /api/progress/certificates`
-- `GET /api/progress/certificates/{id}`
-- `GET /api/progress/certificates/verify/{code}`
-- `GET /api/progress/certificates/download/{id}`
+- POST /api/reviews
+	- role: STUDENT
+	- body: courseId, rating, comment
+	- behavior: creates unapproved review after enrollment and duplicate checks
 
-Debug route:
+- GET /api/reviews/course/{id}
+	- role: public
+	- behavior: returns approved reviews for course id
 
-- `POST /api/progress/debug/generate-certificate`
+- GET /api/reviews/course/{id}/average
+	- role: public
+	- behavior: returns average approved rating as double
 
-Notes:
+- PUT /api/reviews/{id}/approve
+	- role: ADMIN
+	- behavior: marks review as approved
 
-- read endpoints currently require `STUDENT,INSTRUCTOR,ADMIN`.
-- `POST /api/progress/mark-complete` upserts lesson progress and recalculates course-level `ProgressPercent` for that student-course pair.
-- `GET /api/progress/certificates/verify/{code}` allows anonymous verification and expects GUID-form verification code input.
-- debug endpoint currently allows anonymous access for local testing.
-- debug endpoint now generates the PDF and inserts/updates a `Certificate` row for the same student/course.
+## Local Testing Flow
 
-## Testing Guide
+1. Start SQL Server.
+2. Ensure Enrollment API is running on configured EnrollmentApi:BaseUrl.
+3. Apply Review API migration.
+4. Run Review API.
+5. Use src/EduLearn.Review.API/EduLearn.Review.API.http for sample requests.
+6. Submit review with STUDENT token.
+7. Approve review with ADMIN token.
+8. Verify public endpoints show approved review and non-zero average.
 
-Quick local flow:
+## Automated Tests
 
-1. Start SQL Server/LocalDB.
-2. Ensure RabbitMQ is running on localhost.
-3. Run Progress API.
-4. Call `POST /api/progress/debug/generate-certificate`.
-5. Verify PDF file appears in configured output directory (`C:\Temp` by default).
-6. Verify `Certificate` row is inserted/updated in SQL with `StudentId`, `CourseId`, `CertificateUrl`, and `IssuedAt`.
-7. Call `GET /api/progress/certificates/download/{id}` and verify browser download works.
-8. Publish/consume `ICourseCompletedEvent` and verify certificate persistence in DB.
+Review API automated tests are in:
 
-Automated tests:
+- tests/EduLearn.Review.Tests
 
-- `tests/EduLearn.Progress.Tests/ProgressApiCoreTests.cs`
-	- Certificate persistence to DB (SQLite in-memory)
-	- Avatar download + fallback behavior (Moq + mocked HttpClient)
-	- Certificate URL format validation
-	- Download endpoint returns `PhysicalFileResult`
-	- Mark-complete upsert and `ProgressPercent` recalculation behavior
-	- Certificate verification by GUID (invalid/missing/found cases)
+Included coverage:
+
+- service tests with Moq for IReviewRepository and IEnrollmentServiceClient
+- AddReview failure when student is not enrolled
+- AddReview failure when a duplicate review exists
+- repository tests using EF Core InMemory provider
+- GetAverageRating returning mean of approved reviews only
+- ApproveReview setting IsApproved to true
+- controller authorization-attribute tests for:
+	- PUT /api/reviews/{id}/approve requires ADMIN
+	- POST /api/reviews requires STUDENT
+
+Run tests:
+
+```powershell
+dotnet test .\edulearn-backend\tests\EduLearn.Review.Tests\EduLearn.Review.Tests.csproj
+```
 
 ## Build Commands
 
 ```powershell
-dotnet restore .\edulearn-backend\src\EduLearn.Progress.API\EduLearn.Progress.API.csproj
-dotnet build .\edulearn-backend\src\EduLearn.Progress.API\EduLearn.Progress.API.csproj
+dotnet restore .\edulearn-backend\src\EduLearn.Review.API\EduLearn.Review.API.csproj
+dotnet build .\edulearn-backend\src\EduLearn.Review.API\EduLearn.Review.API.csproj
 ```

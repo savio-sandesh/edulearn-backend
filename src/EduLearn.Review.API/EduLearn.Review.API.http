@@ -1,0 +1,28 @@
+@EduLearn.Review.API_HostAddress = http://localhost:5144
+@studentToken = REPLACE_WITH_STUDENT_JWT
+@adminToken = REPLACE_WITH_ADMIN_JWT
+
+POST {{EduLearn.Review.API_HostAddress}}/api/reviews
+Authorization: Bearer {{studentToken}}
+Content-Type: application/json
+
+{
+	"courseId": 101,
+	"rating": 5,
+	"comment": "Excellent course with clear explanations."
+}
+
+###
+
+GET {{EduLearn.Review.API_HostAddress}}/api/reviews/course/101
+Accept: application/json
+
+###
+
+GET {{EduLearn.Review.API_HostAddress}}/api/reviews/course/101/average
+Accept: application/json
+
+###
+
+PUT {{EduLearn.Review.API_HostAddress}}/api/reviews/1/approve
+Authorization: Bearer {{adminToken}}
