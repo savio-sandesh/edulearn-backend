@@ -13,6 +13,15 @@ Environment.SetEnvironmentVariable("MT_LICENSE", "Discord");
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = 1073741824; // 1 GB
+});
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Limits.MaxRequestBodySize = 1073741824; // 1 GB
+});
+
 builder.Services.AddDbContext<ContentDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 

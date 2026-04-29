@@ -223,10 +223,22 @@ namespace EduLearn.Auth.API.Services
         }
 
         /// <inheritdoc />
-        public async Task<IReadOnlyList<User>> GetAllByRoleAsync(string role)
+        public async Task<IReadOnlyList<User>> GetAllByRoleAsync(string role, bool includeInactive = false)
         {
             var normalizedRole = NormalizeRole(role);
-            return await _userRepository.FindAllByRoleAsync(normalizedRole);
+            return await _userRepository.FindAllByRoleAsync(normalizedRole, includeInactive);
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> ToggleUserStatusAsync(int userId)
+        {
+            // For toggling, we need to fetch the user regardless of active state
+            var user = await _userRepository.FindByUserIdAsync(userId, onlyActive: false, asNoTracking: false);
+            if (user == null) return false;
+
+            user.IsActive = !user.IsActive;
+            await _userRepository.SaveChangesAsync();
+            return true;
         }
 
         /// <inheritdoc />

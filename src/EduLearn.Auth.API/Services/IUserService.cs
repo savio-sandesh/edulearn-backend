@@ -71,8 +71,16 @@ namespace EduLearn.Auth.API.Services
         /// Gets all active users for a given role.
         /// </summary>
         /// <param name="role">Role filter (STUDENT, INSTRUCTOR, ADMIN).</param>
-        /// <returns>List of active users in the role.</returns>
-        Task<IReadOnlyList<User>> GetAllByRoleAsync(string role);
+        /// <param name="includeInactive">Whether to include inactive users.</param>
+        /// <returns>List of users in the role.</returns>
+        Task<IReadOnlyList<User>> GetAllByRoleAsync(string role, bool includeInactive = false);
+
+        /// <summary>
+        /// Toggles the IsActive status of a user.
+        /// </summary>
+        /// <param name="userId">The user id to toggle.</param>
+        /// <returns>True if toggled; otherwise false.</returns>
+        Task<bool> ToggleUserStatusAsync(int userId);
 
         /// <summary>
         /// Searches active users by full name or email.

@@ -10,7 +10,7 @@ namespace EduLearn.Auth.API.Repositories
         Task<User?> FindByEmailAsync(string normalizedEmail, bool onlyActive = true);
         Task<User?> FindByUserIdAsync(int userId, bool onlyActive = true, bool asNoTracking = false);
         Task<bool> ExistsByEmailAsync(string normalizedEmail);
-        Task<IReadOnlyList<User>> FindAllByRoleAsync(string normalizedRole);
+        Task<IReadOnlyList<User>> FindAllByRoleAsync(string normalizedRole, bool includeInactive = false);
         Task<IReadOnlyList<User>> FindAllActiveAsync();
         Task UpdateLastLoginAsync(int userId, DateTime lastLoginAtUtc);
         Task<IReadOnlyList<User>> SearchUsersAsync(string normalizedSearchTerm);

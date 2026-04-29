@@ -79,6 +79,14 @@ namespace EduLearn.Course.API.Controllers
             return Ok(courses);
         }
 
+        [Authorize(Roles = "ADMIN")]
+        [HttpGet("pending")]
+        public async Task<IActionResult> GetPending()
+        {
+            var courses = await _courseService.GetPendingApprovalCoursesAsync();
+            return Ok(courses);
+        }
+
         [HttpGet("search")]
         public async Task<IActionResult> Search([FromQuery] string q)
         {

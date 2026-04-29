@@ -234,7 +234,8 @@ namespace EduLearn.Auth.API.Controllers
         {
             try
             {
-                var users = await _userService.GetAllByRoleAsync(role);
+                var isAdmin = User.IsInRole("ADMIN");
+                var users = await _userService.GetAllByRoleAsync(role, includeInactive: isAdmin);
                 if (users.Count == 0)
                 {
                     return NotFound(new { message = "No users found for the requested role." });
@@ -323,6 +324,32 @@ namespace EduLearn.Auth.API.Controllers
             if (!result) return NotFound(new { message = "User not found" });
 
             return Ok(new { message = "Profile updated successfully", avatarUrl });
+        }
+
+        /// <summary>
+        /// Admin: Toggles user active status (blocks/unblocks).
+        /// </summary>
+        [Authorize(Roles = "ADMIN")]
+        [HttpPut("{id:int}/toggle-status")]
+        public async Task<IActionResult> ToggleUserStatus(int id)
+        {
+            var toggled = await _userService.ToggleUserStatusAsync(id);
+            if (!toggled) return NotFound(new { message = "User not found." });
+
+            return Ok(new { message = "User status toggled successfully." });
+        }
+
+        /// <summary>
+        /// Admin: Soft deletes a user (deactivates).
+        /// </summary>
+        [Authorize(Roles = "ADMIN")]
+        [HttpDelete("{id:int}")]
+        public async Task<IActionResult> DeleteUser(int id)
+        {
+            var deactivated = await _userService.DeactivateAccountAsync(id);
+            if (!deactivated) return NotFound(new { message = "User not found." });
+
+            return Ok(new { message = "User softly deleted successfully." });
         }
 
         /// <summary>

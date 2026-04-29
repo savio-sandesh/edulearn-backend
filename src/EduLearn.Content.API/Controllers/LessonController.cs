@@ -10,10 +10,12 @@ namespace EduLearn.Content.API.Controllers;
 public class LessonController : ControllerBase
 {
     private readonly ILessonService _lessonService;
+    private readonly IBlobService _blobService;
 
-    public LessonController(ILessonService lessonService)
+    public LessonController(ILessonService lessonService, IBlobService blobService)
     {
         _lessonService = lessonService;
+        _blobService = blobService;
     }
 
     [Authorize(Roles = "INSTRUCTOR,ADMIN")]
@@ -143,5 +145,28 @@ public class LessonController : ControllerBase
     {
         var count = await _lessonService.GetLessonCountAsync(courseId);
         return Ok(new { courseId, count });
+    }
+
+    [Authorize(Roles = "INSTRUCTOR,ADMIN")]
+    [HttpPost("upload-video")]
+    public async Task<IActionResult> UploadVideo([FromForm] IFormFile file)
+    {
+        if (file == null || file.Length == 0)
+        {
+            return BadRequest(new { message = "Video file is required." });
+        }
+
+        try
+        {
+            var fileName = $"{Guid.NewGuid()}-{file.FileName}";
+            using var stream = file.OpenReadStream();
+            
+            var url = await _blobService.UploadBlobAsync(stream, fileName, file.ContentType);
+            return Ok(new { url });
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { message = "Video upload failed.", detail = ex.Message });
+        }
     }
 }

@@ -50,13 +50,16 @@ namespace EduLearn.Auth.API.Repositories
             return await _context.Users.AnyAsync(u => u.Email.ToUpper() == normalizedEmail);
         }
 
-        public async Task<IReadOnlyList<User>> FindAllByRoleAsync(string normalizedRole)
+        public async Task<IReadOnlyList<User>> FindAllByRoleAsync(string normalizedRole, bool includeInactive = false)
         {
-            return await _context.Users
-                .AsNoTracking()
-                .Where(u => u.IsActive && u.Role == normalizedRole)
-                .OrderBy(u => u.FullName)
-                .ToListAsync();
+            var query = _context.Users.AsNoTracking().Where(u => u.Role == normalizedRole);
+            
+            if (!includeInactive)
+            {
+                query = query.Where(u => u.IsActive);
+            }
+
+            return await query.OrderBy(u => u.FullName).ToListAsync();
         }
 
         public async Task<IReadOnlyList<User>> FindAllActiveAsync()

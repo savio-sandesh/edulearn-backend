@@ -10,6 +10,7 @@ namespace EduLearn.Course.API.Services
         Task<IReadOnlyList<CourseResponseDto>> GetCoursesByCategoryAsync(string category);
         Task<IReadOnlyList<string>> GetAvailableCategoriesAsync();
         Task<IReadOnlyList<CourseResponseDto>> GetPublishedCoursesAsync();
+        Task<IReadOnlyList<CourseResponseDto>> GetPendingApprovalCoursesAsync();
         Task<IReadOnlyList<CourseResponseDto>> SearchCoursesAsync(string searchTerm);
         Task<CourseResponseDto?> UpdateCourseAsync(int courseId, CourseUpdateDto updatedCourse, int currentUserId, bool isAdmin);
         Task<CourseResponseDto?> UpdateThumbnailUrlAsync(int courseId, string thumbnailUrl, int currentUserId, bool isAdmin);

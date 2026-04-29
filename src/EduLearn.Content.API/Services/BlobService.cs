@@ -72,4 +72,28 @@ public class BlobService : IBlobService
 
         return DefaultSasMinutes;
     }
+
+    public async Task<string> UploadBlobAsync(Stream fileStream, string fileName, string contentType, string containerName = "lesson-videos")
+    {
+        if (string.IsNullOrWhiteSpace(_connectionString))
+        {
+            throw new InvalidOperationException("Azure Storage connection string is not configured.");
+        }
+
+        var blobServiceClient = new BlobServiceClient(_connectionString);
+        var containerClient = blobServiceClient.GetBlobContainerClient(containerName);
+        
+        await containerClient.CreateIfNotExistsAsync(Azure.Storage.Blobs.Models.PublicAccessType.None);
+
+        var blobClient = containerClient.GetBlobClient(fileName);
+        
+        var options = new Azure.Storage.Blobs.Models.BlobUploadOptions
+        {
+            HttpHeaders = new Azure.Storage.Blobs.Models.BlobHttpHeaders { ContentType = contentType }
+        };
+
+        await blobClient.UploadAsync(fileStream, options);
+
+        return blobClient.Uri.ToString();
+    }
 }

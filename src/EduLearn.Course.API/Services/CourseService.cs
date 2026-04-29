@@ -68,6 +68,13 @@ namespace EduLearn.Course.API.Services
             return courses.Select(MapToResponseDto).ToList();
         }
 
+        public async Task<IReadOnlyList<CourseResponseDto>> GetPendingApprovalCoursesAsync()
+        {
+            var published = await _courseRepository.FindByIsPublishedAsync(true);
+            var pending = published.Where(c => !c.IsApproved).ToList();
+            return pending.Select(MapToResponseDto).ToList();
+        }
+
         public async Task<IReadOnlyList<CourseResponseDto>> SearchCoursesAsync(string searchTerm)
         {
             var results = await _courseRepository.SearchCoursesAsync(searchTerm);
@@ -125,12 +132,6 @@ namespace EduLearn.Course.API.Services
             }
 
             EnsureCanModifyCourse(course, currentUserId, isAdmin);
-
-            // Keep publication safe: courses with no lesson material should not be publishable.
-            if (course.TotalDuration <= 0)
-            {
-                return false;
-            }
 
             course.IsPublished = true;
             course.UpdatedAt = DateTime.UtcNow;
