@@ -92,6 +92,25 @@ public class EnrollmentService : IEnrollmentService
         enrollment.ProgressPercent = total == 0 ? 0 : (int)((completed / (double)total) * 100);
         enrollment.LastAccessedAt = DateTime.UtcNow;
 
+        if (enrollment.ProgressPercent >= 100 && enrollment.Status != EnrollmentStatus.COMPLETED)
+        {
+            enrollment.Status = EnrollmentStatus.COMPLETED;
+            enrollment.CompletedAt = DateTime.UtcNow;
+            
+            await _publishEndpoint.Publish(new CourseCompletedEvent
+            {
+                EnrollmentId = Guid.NewGuid(),
+                StudentId = enrollment.StudentId,
+                CourseId = enrollment.CourseId,
+                CompletedAt = enrollment.CompletedAt.Value
+            });
+
+            if (progress.AllQuizzesPassed)
+            {
+                enrollment.CertificateIssued = true;
+            }
+        }
+
         await _enrollmentRepository.UpdateAsync(enrollment);
         await _enrollmentRepository.SaveChangesAsync();
         return MapToResponse(enrollment);

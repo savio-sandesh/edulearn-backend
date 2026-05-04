@@ -37,6 +37,15 @@ public class BlobService : IBlobService
         var containerName = segments[0];
         var blobName = Uri.UnescapeDataString(segments[1]);
 
+        // Fix for local Azurite emulator where the first path segment is the account name
+        if (contentUri.IsLoopback && containerName == "devstoreaccount1")
+        {
+            var azuriteSegments = blobName.Split('/', 2, StringSplitOptions.RemoveEmptyEntries);
+            if (azuriteSegments.Length < 2) return Task.FromResult(contentUrl);
+            containerName = azuriteSegments[0];
+            blobName = azuriteSegments[1];
+        }
+
         var blobServiceClient = new BlobServiceClient(_connectionString);
         if (!string.Equals(contentUri.Host, blobServiceClient.Uri.Host, StringComparison.OrdinalIgnoreCase))
         {

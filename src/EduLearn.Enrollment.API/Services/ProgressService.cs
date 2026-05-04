@@ -1,37 +1,60 @@
+using System.Text.Json;
+
 namespace EduLearn.Enrollment.API.Services;
 
 public class ProgressService : IProgressService
 {
     private readonly IConfiguration _configuration;
+    private readonly HttpClient _httpClient;
 
-    public ProgressService(IConfiguration configuration)
+    public ProgressService(IConfiguration configuration, HttpClient httpClient)
     {
         _configuration = configuration;
+        _httpClient = httpClient;
     }
 
-    public Task<CourseProgressSnapshot> GetCourseProgressAsync(int studentId, int courseId)
+    public async Task<CourseProgressSnapshot> GetCourseProgressAsync(int studentId, int courseId)
     {
         var useMock = bool.TryParse(_configuration["Progress:UseMock"], out var parsed) && parsed;
-        if (!useMock)
+        if (useMock)
         {
-            // Placeholder for future Content API / message-bus integration.
-            throw new NotSupportedException("Progress provider integration is not configured yet.");
+            return new CourseProgressSnapshot
+            {
+                CompletedLessons = int.TryParse(_configuration["Progress:MockCompletedLessons"], out var c) ? c : 0,
+                TotalLessons = int.TryParse(_configuration["Progress:MockTotalLessons"], out var t) ? t : 0,
+                AllQuizzesPassed = bool.TryParse(_configuration["Progress:MockAllQuizzesPassed"], out var q) && q
+            };
         }
 
-        var completed = ReadInt("Progress:MockCompletedLessons", 0);
-        var total = ReadInt("Progress:MockTotalLessons", 0);
-        var quizzesPassed = bool.TryParse(_configuration["Progress:MockAllQuizzesPassed"], out var allPassed) && allPassed;
-
-        return Task.FromResult(new CourseProgressSnapshot
+        var progressApiUrl = _configuration["ProgressApi:BaseUrl"] ?? "http://localhost:5218";
+        
+        try
         {
-            CompletedLessons = completed,
-            TotalLessons = total,
-            AllQuizzesPassed = quizzesPassed
-        });
+            var response = await _httpClient.GetAsync($"{progressApiUrl}/api/progress/lesson-progress?studentId={studentId}&courseId={courseId}");
+            if (response.IsSuccessStatusCode)
+            {
+                var content = await response.Content.ReadAsStringAsync();
+                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                var records = JsonSerializer.Deserialize<ProgressRecordDto[]>(content, options) ?? Array.Empty<ProgressRecordDto>();
+                
+                return new CourseProgressSnapshot
+                {
+                    TotalLessons = records.Length,
+                    CompletedLessons = records.Count(x => x.IsCompleted),
+                    AllQuizzesPassed = false // Assuming no quizzes logic yet
+                };
+            }
+        }
+        catch (Exception)
+        {
+            // Fallback to 0 if API is unreachable
+        }
+
+        return new CourseProgressSnapshot { CompletedLessons = 0, TotalLessons = 0, AllQuizzesPassed = false };
     }
 
-    private int ReadInt(string key, int fallback)
+    private class ProgressRecordDto
     {
-        return int.TryParse(_configuration[key], out var value) ? value : fallback;
+        public bool IsCompleted { get; set; }
     }
 }

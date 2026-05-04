@@ -87,6 +87,26 @@ public class EnrollmentController : ControllerBase
     }
 
     [Authorize(Roles = "STUDENT")]
+    [HttpPut("progress/byCourse/{courseId:int}")]
+    public async Task<IActionResult> UpdateProgressByCourse(int courseId)
+    {
+        if (!TryGetCurrentUserId(out var studentId))
+        {
+            return Unauthorized(new { message = "User ID claim is missing or invalid." });
+        }
+
+        var enrollments = await _enrollmentService.GetEnrollmentsByStudentAsync(studentId);
+        var enrollment = enrollments.FirstOrDefault(e => e.CourseId == courseId);
+        if (enrollment == null)
+        {
+            return NotFound(new { message = "Enrollment not found." });
+        }
+
+        var updated = await _enrollmentService.UpdateProgressAsync(enrollment.EnrollmentId);
+        return updated == null ? NotFound(new { message = "Enrollment not found." }) : Ok(updated);
+    }
+
+    [Authorize(Roles = "STUDENT")]
     [HttpPost("complete/{courseId:int}")]
     public async Task<IActionResult> Complete(int courseId)
     {

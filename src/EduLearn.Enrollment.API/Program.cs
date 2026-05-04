@@ -18,9 +18,8 @@ builder.Services.AddDbContext<EnrollmentDbContext>(options =>
 builder.Services.AddScoped<IEnrollmentRepository, EnrollmentRepository>();
 builder.Services.AddScoped<IEnrollmentService, EnrollmentService>();
 builder.Services.AddScoped<ICourseService, CourseService>();
-builder.Services.AddScoped<IProgressService, ProgressService>();
+builder.Services.AddHttpClient<IProgressService, ProgressService>();
 builder.Services.AddHttpContextAccessor();
-builder.Services.AddHttpClient();
 
 builder.Services.AddMassTransit(x =>
 {
