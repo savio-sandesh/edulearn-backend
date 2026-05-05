@@ -51,7 +51,7 @@ public class QuizController : ControllerBase
     public async Task<IActionResult> GetByLesson(int lessonId)
     {
         var quiz = await _quizService.GetQuizByLesson(lessonId);
-        return quiz == null ? NotFound(new { message = "Quiz not found" }) : Ok(quiz);
+        return Ok(quiz);
     }
 
     [Authorize(Roles = "INSTRUCTOR,ADMIN")]

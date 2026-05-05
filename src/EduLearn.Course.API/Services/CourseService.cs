@@ -370,8 +370,14 @@ namespace EduLearn.Course.API.Services
             course.Level = dto.Level;
             course.Language = dto.Language;
             course.Price = dto.Price;
-            course.ThumbnailUrl = dto.ThumbnailUrl;
             course.TotalDuration = dto.TotalDuration;
+
+            // Only overwrite the thumbnail when the caller explicitly provides a new URL.
+            // If the DTO omits ThumbnailUrl (null/empty), keep the existing stored value.
+            if (!string.IsNullOrWhiteSpace(dto.ThumbnailUrl))
+            {
+                course.ThumbnailUrl = dto.ThumbnailUrl;
+            }
         }
 
         private static CourseResponseDto MapToResponseDto(CourseModel course)

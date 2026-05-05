@@ -16,7 +16,7 @@ public class EnrollmentController : ControllerBase
         _enrollmentService = enrollmentService;
     }
 
-    [Authorize(Roles = "STUDENT,ADMIN")]
+    [Authorize(Roles = "STUDENT")]
     [HttpPost("enroll/{courseId:int}")]
     public async Task<IActionResult> Enroll(int courseId)
     {
@@ -44,7 +44,7 @@ public class EnrollmentController : ControllerBase
         return enrollment == null ? NotFound(new { message = "Enrollment not found." }) : Ok(enrollment);
     }
 
-    [Authorize(Roles = "STUDENT,ADMIN")]
+    [Authorize(Roles = "STUDENT")]
     [HttpGet("byStudent/{studentId:int}")]
     public async Task<IActionResult> GetByStudent(int studentId)
     {
@@ -65,7 +65,7 @@ public class EnrollmentController : ControllerBase
         return Ok(enrollments);
     }
 
-    [Authorize(Roles = "STUDENT,ADMIN")]
+    [Authorize(Roles = "STUDENT")]
     [HttpGet("isEnrolled/{courseId:int}")]
     public async Task<IActionResult> IsEnrolled(int courseId)
     {
@@ -78,7 +78,7 @@ public class EnrollmentController : ControllerBase
         return Ok(new { studentId, courseId, isEnrolled = enrolled });
     }
 
-    [Authorize(Roles = "STUDENT,ADMIN")]
+    [Authorize(Roles = "STUDENT")]
     [HttpPut("progress/{enrollmentId:int}")]
     public async Task<IActionResult> UpdateProgress(int enrollmentId)
     {
@@ -147,7 +147,7 @@ public class EnrollmentController : ControllerBase
         return dropped ? Ok(new { message = "Enrollment dropped." }) : NotFound(new { message = "Enrollment not found." });
     }
 
-    [Authorize(Roles = "STUDENT,ADMIN")]
+    [Authorize(Roles = "STUDENT")]
     [HttpGet("completed/{studentId:int}")]
     public async Task<IActionResult> GetCompleted(int studentId)
     {
@@ -160,7 +160,7 @@ public class EnrollmentController : ControllerBase
         return Ok(enrollments);
     }
 
-    [Authorize(Roles = "STUDENT,ADMIN")]
+    [Authorize(Roles = "STUDENT")]
     [HttpGet("inProgress/{studentId:int}")]
     public async Task<IActionResult> GetInProgress(int studentId)
     {
@@ -189,11 +189,6 @@ public class EnrollmentController : ControllerBase
 
     private bool CanAccessStudentData(int requestedStudentId)
     {
-        if (User.IsInRole("ADMIN"))
-        {
-            return true;
-        }
-
         return TryGetCurrentUserId(out var currentUserId) && currentUserId == requestedStudentId;
     }
 }
