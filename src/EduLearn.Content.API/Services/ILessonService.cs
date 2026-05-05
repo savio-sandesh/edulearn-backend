@@ -17,4 +17,5 @@ public interface ILessonService
     Task<bool> DeleteLessonAsync(int lessonId);
     Task DeleteAllForCourseAsync(int courseId);
     Task<int> GetLessonCountAsync(int courseId);
+    Task<int> GetTotalDurationAsync(int courseId);
 }

@@ -47,6 +47,15 @@ namespace EduLearn.Course.API.Repositories
                 .ToListAsync();
         }
 
+        public async Task<IReadOnlyList<CourseModel>> FindPendingDeleteAsync()
+        {
+            return await _context.Courses
+                .AsNoTracking()
+                .Where(c => c.IsDeleteRequested)
+                .OrderBy(c => c.Title)
+                .ToListAsync();
+        }
+
         public async Task<IReadOnlyList<CourseModel>> SearchCoursesAsync(string searchTerm)
         {
             var pattern = $"%{searchTerm.Trim()}%";
@@ -117,6 +126,15 @@ namespace EduLearn.Course.API.Repositories
         public async Task AddReviewAsync(Review review)
         {
             await _context.Reviews.AddAsync(review);
+        }
+
+        public async Task<IReadOnlyList<Review>> FindReviewsByCourseIdAsync(int courseId)
+        {
+            return await _context.Reviews
+                .AsNoTracking()
+                .Where(r => r.CourseId == courseId)
+                .OrderByDescending(r => r.CreatedAt)
+                .ToListAsync();
         }
 
         public async Task AddAsync(CourseModel course)

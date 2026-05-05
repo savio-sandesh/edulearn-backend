@@ -27,6 +27,7 @@ namespace EduLearn.Course.API.Models
 
         public bool IsPublished { get; set; }
         public bool IsApproved { get; set; }
+        public bool IsDeleteRequested { get; set; }
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
@@ -34,6 +35,7 @@ namespace EduLearn.Course.API.Models
         // Stored in minutes.
         public int TotalDuration { get; set; }
         public int EnrollmentCount { get; set; }
+        public double AverageRating { get; set; }
 
         public ICollection<Review> Reviews { get; set; } = new List<Review>();
     }

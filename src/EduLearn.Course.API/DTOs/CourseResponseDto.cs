@@ -13,9 +13,11 @@ namespace EduLearn.Course.API.DTOs
         public string? ThumbnailUrl { get; set; }
         public bool IsPublished { get; set; }
         public bool IsApproved { get; set; }
+        public bool IsDeleteRequested { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
         public int TotalDuration { get; set; }
         public int EnrollmentCount { get; set; }
+        public double AverageRating { get; set; }
     }
 }

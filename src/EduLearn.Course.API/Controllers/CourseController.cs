@@ -65,6 +65,13 @@ namespace EduLearn.Course.API.Controllers
             return Ok(courses);
         }
 
+        [HttpGet("{id:int}/reviews")]
+        public async Task<IActionResult> GetReviews(int id)
+        {
+            var reviews = await _courseService.GetReviewsAsync(id);
+            return Ok(reviews);
+        }
+
         [HttpGet("categories")]
         public async Task<IActionResult> GetCategories()
         {
@@ -84,6 +91,14 @@ namespace EduLearn.Course.API.Controllers
         public async Task<IActionResult> GetPending()
         {
             var courses = await _courseService.GetPendingApprovalCoursesAsync();
+            return Ok(courses);
+        }
+
+        [Authorize(Roles = "ADMIN")]
+        [HttpGet("pending-delete")]
+        public async Task<IActionResult> GetPendingDelete()
+        {
+            var courses = await _courseService.GetPendingDeleteCoursesAsync();
             return Ok(courses);
         }
 
@@ -212,6 +227,19 @@ namespace EduLearn.Course.API.Controllers
         }
 
         [Authorize(Roles = "ADMIN")]
+        [HttpPut("reject-delete/{id:int}")]
+        public async Task<IActionResult> RejectDeleteCourse(int id)
+        {
+            var rejected = await _courseService.RejectDeleteAsync(id);
+            if (!rejected)
+            {
+                return NotFound(new { message = "Course not found or not pending deletion." });
+            }
+
+            return Ok(new { message = "Course delete request rejected." });
+        }
+
+        [Authorize(Roles = "ADMIN")]
         [HttpPut("approve/{id:int}")]
         public async Task<IActionResult> ApproveCourse(int id)
         {
@@ -239,6 +267,11 @@ namespace EduLearn.Course.API.Controllers
                 if (!deleted)
                 {
                     return NotFound(new { message = "Course not found" });
+                }
+
+                if (!User.IsInRole("ADMIN"))
+                {
+                    return Ok(new { message = "Course delete request submitted for admin approval." });
                 }
 
                 return Ok(new { message = "Course deleted successfully." });

@@ -75,6 +75,12 @@ namespace EduLearn.Course.API.Services
             return pending.Select(MapToResponseDto).ToList();
         }
 
+        public async Task<IReadOnlyList<CourseResponseDto>> GetPendingDeleteCoursesAsync()
+        {
+            var courses = await _courseRepository.FindPendingDeleteAsync();
+            return courses.Select(MapToResponseDto).ToList();
+        }
+
         public async Task<IReadOnlyList<CourseResponseDto>> SearchCoursesAsync(string searchTerm)
         {
             var results = await _courseRepository.SearchCoursesAsync(searchTerm);
@@ -184,7 +190,39 @@ namespace EduLearn.Course.API.Services
             }
 
             EnsureCanModifyCourse(course, currentUserId, isAdmin);
+
+            if (!isAdmin)
+            {
+                // Soft delete: pending admin approval
+                course.IsDeleteRequested = true;
+                course.IsPublished = false; 
+                course.UpdatedAt = DateTime.UtcNow;
+                await _courseRepository.SaveChangesAsync();
+                return true;
+            }
+
+            // Admin deletion is permanent
             return await _courseRepository.DeleteByIdAsync(courseId);
+        }
+
+        public async Task<bool> RejectDeleteAsync(int courseId)
+        {
+            var course = await _courseRepository.FindByCourseIdAsync(courseId);
+            if (course == null)
+            {
+                return false;
+            }
+
+            if (!course.IsDeleteRequested)
+            {
+                return false;
+            }
+
+            course.IsDeleteRequested = false;
+            // Optionally, we could set IsPublished back to true, but safer to let instructor republish.
+            course.UpdatedAt = DateTime.UtcNow;
+            await _courseRepository.SaveChangesAsync();
+            return true;
         }
 
         public async Task<IReadOnlyList<CourseResponseDto>> GetTopRatedCoursesAsync(int count)
@@ -234,6 +272,12 @@ namespace EduLearn.Course.API.Services
             {
                 await _courseRepository.AddReviewAsync(review);
                 await _courseRepository.SaveChangesAsync();
+
+                // Recalculate average rating
+                var allReviews = await _courseRepository.FindReviewsByCourseIdAsync(course.CourseId);
+                double newAvg = allReviews.Any() ? allReviews.Average(r => r.Rating) : 0;
+                course.AverageRating = newAvg;
+                await _courseRepository.SaveChangesAsync();
             }
             catch (DbUpdateException)
             {
@@ -249,6 +293,20 @@ namespace EduLearn.Course.API.Services
                 Comment = review.Comment,
                 CreatedAt = review.CreatedAt
             };
+        }
+
+        public async Task<IReadOnlyList<ReviewResponseDto>> GetReviewsAsync(int courseId)
+        {
+            var reviews = await _courseRepository.FindReviewsByCourseIdAsync(courseId);
+            return reviews.Select(r => new ReviewResponseDto
+            {
+                ReviewId = r.ReviewId,
+                CourseId = r.CourseId,
+                StudentId = r.StudentId,
+                Rating = r.Rating,
+                Comment = r.Comment,
+                CreatedAt = r.CreatedAt
+            }).ToList();
         }
 
         private static string NormalizeLevel(string level)
@@ -331,10 +389,12 @@ namespace EduLearn.Course.API.Services
                 ThumbnailUrl = course.ThumbnailUrl,
                 IsPublished = course.IsPublished,
                 IsApproved = course.IsApproved,
+                IsDeleteRequested = course.IsDeleteRequested,
                 CreatedAt = course.CreatedAt,
                 UpdatedAt = course.UpdatedAt,
                 TotalDuration = course.TotalDuration,
-                EnrollmentCount = course.EnrollmentCount
+                EnrollmentCount = course.EnrollmentCount,
+                AverageRating = course.AverageRating
             };
         }
     }

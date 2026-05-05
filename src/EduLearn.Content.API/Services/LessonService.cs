@@ -181,6 +181,11 @@ public class LessonService : ILessonService
         return await _lessonRepository.CountByCourseIdAsync(courseId);
     }
 
+    public async Task<int> GetTotalDurationAsync(int courseId)
+    {
+        return await _lessonRepository.SumDurationByCourseIdAsync(courseId);
+    }
+
     private static string NormalizeContentType(string contentType)
     {
         var normalized = contentType?.Trim().ToUpperInvariant() ?? string.Empty;
@@ -209,9 +214,16 @@ public class LessonService : ILessonService
             throw new ArgumentException("ContentUrl is required.");
         }
 
-        if (!Uri.TryCreate(contentUrl, UriKind.Absolute, out _))
+        // Article and Quiz lessons store their content in the Description field;
+        // their ContentUrl is a lightweight reference string, not an HTTP URL.
+        var normalizedType = contentType.Trim().ToUpperInvariant();
+        bool requiresHttpUrl = normalizedType != "ARTICLE" && normalizedType != "QUIZ_LINK";
+
+        if (requiresHttpUrl && !Uri.TryCreate(contentUrl, UriKind.Absolute, out var uri)
+            || (requiresHttpUrl && Uri.TryCreate(contentUrl, UriKind.Absolute, out uri)
+                && uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp))
         {
-            throw new ArgumentException("ContentUrl must be an absolute URL.");
+            throw new ArgumentException("ContentUrl must be an absolute HTTP or HTTPS URL.");
         }
 
         if (durationMinutes < 0)
@@ -219,6 +231,7 @@ public class LessonService : ILessonService
             throw new ArgumentException("DurationMinutes must be zero or greater.");
         }
     }
+
 
     private async Task<IReadOnlyList<LessonResponseDto>> MapManyToDtoAsync(IEnumerable<Lesson> lessons)
     {

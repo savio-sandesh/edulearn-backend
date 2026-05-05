@@ -147,6 +147,14 @@ public class LessonController : ControllerBase
         return Ok(new { courseId, count });
     }
 
+    [AllowAnonymous]
+    [HttpGet("totalDuration/{courseId:int}")]
+    public async Task<IActionResult> GetTotalDuration(int courseId)
+    {
+        var totalMinutes = await _lessonService.GetTotalDurationAsync(courseId);
+        return Ok(new { courseId, totalMinutes });
+    }
+
     [Authorize(Roles = "INSTRUCTOR,ADMIN")]
     [HttpPost("upload-video")]
     public async Task<IActionResult> UploadVideo([FromForm] IFormFile file)

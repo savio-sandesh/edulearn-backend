@@ -59,6 +59,13 @@ public class LessonRepository : ILessonRepository
         return await _dbContext.Lessons.CountAsync(x => x.CourseId == courseId);
     }
 
+    public async Task<int> SumDurationByCourseIdAsync(int courseId)
+    {
+        return await _dbContext.Lessons
+            .Where(x => x.CourseId == courseId)
+            .SumAsync(x => x.DurationMinutes);
+    }
+
     public async Task<int> UpdateDisplayOrderAsync(int lessonId, int displayOrder)
     {
         return await _dbContext.Lessons
