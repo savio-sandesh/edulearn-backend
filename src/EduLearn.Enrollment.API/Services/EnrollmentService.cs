@@ -165,6 +165,15 @@ public class EnrollmentService : IEnrollmentService
         enrollment.CertificateIssued = true;
         await _enrollmentRepository.UpdateAsync(enrollment);
         await _enrollmentRepository.SaveChangesAsync();
+
+        await _publishEndpoint.Publish(new CourseCompletedEvent
+        {
+            EnrollmentId = Guid.NewGuid(),
+            StudentId = enrollment.StudentId,
+            CourseId = enrollment.CourseId,
+            CompletedAt = enrollment.CompletedAt ?? DateTime.UtcNow
+        });
+
         return true;
     }
 

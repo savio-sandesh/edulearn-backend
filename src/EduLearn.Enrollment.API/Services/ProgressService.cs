@@ -1,4 +1,6 @@
+using System.Net.Http.Headers;
 using System.Text.Json;
+using Microsoft.AspNetCore.Http;
 
 namespace EduLearn.Enrollment.API.Services;
 
@@ -6,11 +8,13 @@ public class ProgressService : IProgressService
 {
     private readonly IConfiguration _configuration;
     private readonly HttpClient _httpClient;
+    private readonly IHttpContextAccessor _httpContextAccessor;
 
-    public ProgressService(IConfiguration configuration, HttpClient httpClient)
+    public ProgressService(IConfiguration configuration, HttpClient httpClient, IHttpContextAccessor httpContextAccessor)
     {
         _configuration = configuration;
         _httpClient = httpClient;
+        _httpContextAccessor = httpContextAccessor;
     }
 
     public async Task<CourseProgressSnapshot> GetCourseProgressAsync(int studentId, int courseId)
@@ -27,9 +31,29 @@ public class ProgressService : IProgressService
         }
 
         var progressApiUrl = _configuration["ProgressApi:BaseUrl"] ?? "http://localhost:5218";
+        var contentApiUrl = _configuration["ContentApi:BaseUrl"] ?? "http://localhost:5176";
         
+        var request = _httpContextAccessor.HttpContext?.Request;
+        var token = request?.Headers["Authorization"].FirstOrDefault()?.Replace("Bearer ", "");
+        if (!string.IsNullOrWhiteSpace(token))
+        {
+            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        }
+
         try
         {
+            int totalLessons = 0;
+            var countResponse = await _httpClient.GetAsync($"{contentApiUrl}/api/lessons/count/{courseId}");
+            if (countResponse.IsSuccessStatusCode)
+            {
+                var countContent = await countResponse.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(countContent);
+                if (doc.RootElement.TryGetProperty("count", out var countEl) && countEl.TryGetInt32(out var countVal))
+                {
+                    totalLessons = countVal;
+                }
+            }
+
             var response = await _httpClient.GetAsync($"{progressApiUrl}/api/progress/lesson-progress?studentId={studentId}&courseId={courseId}");
             if (response.IsSuccessStatusCode)
             {
@@ -39,7 +63,7 @@ public class ProgressService : IProgressService
                 
                 return new CourseProgressSnapshot
                 {
-                    TotalLessons = records.Length,
+                    TotalLessons = totalLessons,
                     CompletedLessons = records.Count(x => x.IsCompleted),
                     AllQuizzesPassed = false // Assuming no quizzes logic yet
                 };

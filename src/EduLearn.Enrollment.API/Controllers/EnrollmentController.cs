@@ -119,10 +119,21 @@ public class EnrollmentController : ControllerBase
         return done ? Ok(new { message = "Enrollment marked as completed." }) : NotFound(new { message = "Enrollment not found." });
     }
 
-    [Authorize(Roles = "ADMIN")]
+    [Authorize(Roles = "STUDENT,ADMIN")]
     [HttpPut("issueCert/{enrollmentId:int}")]
     public async Task<IActionResult> IssueCertificate(int enrollmentId)
     {
+        var enrollment = await _enrollmentService.GetEnrollmentByIdAsync(enrollmentId);
+        if (enrollment == null)
+        {
+            return NotFound(new { message = "Enrollment not found." });
+        }
+
+        if (User.IsInRole("STUDENT") && !CanAccessStudentData(enrollment.StudentId))
+        {
+            return Forbid();
+        }
+
         try
         {
             var issued = await _enrollmentService.IssueCertificateAsync(enrollmentId);
