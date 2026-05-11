@@ -4,7 +4,6 @@ using EduLearn.Progress.API.Services;
 using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using QuestPDF.Infrastructure;
@@ -19,6 +18,7 @@ builder.Services.AddDbContext<ProgressDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 builder.Services.AddScoped<ICertificateService, CertificateService>();
+builder.Services.AddScoped<IBlobStorageService, BlobStorageService>();
 builder.Services.AddHttpClient();
 
 builder.Services.AddMassTransit(x =>
@@ -100,25 +100,13 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
-        policy.WithOrigins("http://localhost:4200")
+        policy.WithOrigins("http://localhost:4200", "http://localhost:5000")
               .AllowAnyHeader()
               .AllowAnyMethod();
     });
 });
 
 var app = builder.Build();
-
-var configuredOutputDirectory = builder.Configuration["Certificate:OutputDirectory"];
-var certificatesOutputDirectory = string.IsNullOrWhiteSpace(configuredOutputDirectory)
-    ? @"C:\Temp"
-    : configuredOutputDirectory;
-
-if (!Path.IsPathRooted(certificatesOutputDirectory))
-{
-    certificatesOutputDirectory = Path.Combine(app.Environment.ContentRootPath, certificatesOutputDirectory);
-}
-
-Directory.CreateDirectory(certificatesOutputDirectory);
 
 if (app.Environment.IsDevelopment())
 {
@@ -129,11 +117,6 @@ if (app.Environment.IsDevelopment())
 app.UseCors("AllowFrontend");
 app.UseHttpsRedirection();
 app.UseStaticFiles();
-app.UseStaticFiles(new StaticFileOptions
-{
-    FileProvider = new PhysicalFileProvider(certificatesOutputDirectory),
-    RequestPath = "/certificates"
-});
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

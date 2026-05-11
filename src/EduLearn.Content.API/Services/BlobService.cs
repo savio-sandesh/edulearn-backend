@@ -7,11 +7,13 @@ public class BlobService : IBlobService
 {
     private const int DefaultSasMinutes = 30;
     private readonly string? _connectionString;
+    private readonly string _defaultContainerName;
     private readonly int _sasExpiryMinutes;
 
     public BlobService(IConfiguration configuration)
     {
         _connectionString = configuration["AzureStorage:ConnectionString"];
+        _defaultContainerName = configuration["AzureStorage:ContainerName"] ?? "lesson-content";
         _sasExpiryMinutes = ReadSasMinutes(configuration["AzureStorage:SasExpiryMinutes"]);
     }
 
@@ -23,6 +25,11 @@ public class BlobService : IBlobService
         }
 
         if (!Uri.TryCreate(contentUrl, UriKind.Absolute, out var contentUri))
+        {
+            return Task.FromResult(contentUrl);
+        }
+
+        if (HasSasToken(contentUri))
         {
             return Task.FromResult(contentUrl);
         }
@@ -53,9 +60,50 @@ public class BlobService : IBlobService
         }
 
         var blobClient = blobServiceClient.GetBlobContainerClient(containerName).GetBlobClient(blobName);
+        var sasUrl = GenerateReadSasUrl(blobClient, containerName, blobName);
+        return Task.FromResult(sasUrl);
+    }
+
+    private static int ReadSasMinutes(string? value)
+    {
+        if (int.TryParse(value, out var parsed) && parsed > 0)
+        {
+            return parsed;
+        }
+
+        return DefaultSasMinutes;
+    }
+
+    public async Task<string> UploadBlobAsync(Stream fileStream, string fileName, string contentType, string? containerName = null)
+    {
+        if (string.IsNullOrWhiteSpace(_connectionString))
+        {
+            throw new InvalidOperationException("Azure Storage connection string is not configured.");
+        }
+
+        var resolvedContainerName = string.IsNullOrWhiteSpace(containerName) ? _defaultContainerName : containerName;
+        var blobServiceClient = new BlobServiceClient(_connectionString);
+        var containerClient = blobServiceClient.GetBlobContainerClient(resolvedContainerName);
+        
+        await containerClient.CreateIfNotExistsAsync(Azure.Storage.Blobs.Models.PublicAccessType.None);
+
+        var blobClient = containerClient.GetBlobClient(fileName);
+        
+        var options = new Azure.Storage.Blobs.Models.BlobUploadOptions
+        {
+            HttpHeaders = new Azure.Storage.Blobs.Models.BlobHttpHeaders { ContentType = contentType }
+        };
+
+        await blobClient.UploadAsync(fileStream, options);
+
+        return GenerateReadSasUrl(blobClient, resolvedContainerName, fileName);
+    }
+
+    private string GenerateReadSasUrl(BlobClient blobClient, string containerName, string blobName)
+    {
         if (!blobClient.CanGenerateSasUri)
         {
-            return Task.FromResult(contentUrl);
+            throw new InvalidOperationException("Azure Storage connection string must include an account key to generate SAS URLs.");
         }
 
         var sasBuilder = new BlobSasBuilder
@@ -69,40 +117,18 @@ public class BlobService : IBlobService
         sasBuilder.SetPermissions(BlobSasPermissions.Read);
 
         var signedUri = blobClient.GenerateSasUri(sasBuilder);
-        return Task.FromResult(signedUri.ToString());
+        return signedUri.ToString();
     }
 
-    private static int ReadSasMinutes(string? value)
+    private static bool HasSasToken(Uri uri)
     {
-        if (int.TryParse(value, out var parsed) && parsed > 0)
+        var query = uri.Query;
+        if (string.IsNullOrWhiteSpace(query))
         {
-            return parsed;
+            return false;
         }
 
-        return DefaultSasMinutes;
-    }
-
-    public async Task<string> UploadBlobAsync(Stream fileStream, string fileName, string contentType, string containerName = "lesson-videos")
-    {
-        if (string.IsNullOrWhiteSpace(_connectionString))
-        {
-            throw new InvalidOperationException("Azure Storage connection string is not configured.");
-        }
-
-        var blobServiceClient = new BlobServiceClient(_connectionString);
-        var containerClient = blobServiceClient.GetBlobContainerClient(containerName);
-        
-        await containerClient.CreateIfNotExistsAsync(Azure.Storage.Blobs.Models.PublicAccessType.None);
-
-        var blobClient = containerClient.GetBlobClient(fileName);
-        
-        var options = new Azure.Storage.Blobs.Models.BlobUploadOptions
-        {
-            HttpHeaders = new Azure.Storage.Blobs.Models.BlobHttpHeaders { ContentType = contentType }
-        };
-
-        await blobClient.UploadAsync(fileStream, options);
-
-        return blobClient.Uri.ToString();
+        return query.Contains("sig=", StringComparison.OrdinalIgnoreCase)
+            && query.Contains("sv=", StringComparison.OrdinalIgnoreCase);
     }
 }

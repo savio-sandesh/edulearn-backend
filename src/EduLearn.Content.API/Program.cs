@@ -13,28 +13,34 @@ Environment.SetEnvironmentVariable("MT_LICENSE", "Discord");
 
 var builder = WebApplication.CreateBuilder(args);
 
+// --- 1. Request and File Limits (1 GB) ---
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
 {
-    options.MultipartBodyLengthLimit = 1073741824; // 1 GB
+    options.MultipartBodyLengthLimit = 1073741824; 
 });
 builder.WebHost.ConfigureKestrel(options =>
 {
-    options.Limits.MaxRequestBodySize = 1073741824; // 1 GB
+    options.Limits.MaxRequestBodySize = 1073741824; 
 });
 
+// --- 2. Database Configuration with Azure Resiliency ---
 builder.Services.AddDbContext<ContentDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseSqlServer(
+        builder.Configuration.GetConnectionString("DefaultConnection"),
+        sqlOptions => sqlOptions.EnableRetryOnFailure(
+            maxRetryCount: 5,
+            maxRetryDelay: TimeSpan.FromSeconds(30),
+            errorNumbersToAdd: null)));
 
 builder.Services.AddScoped<ILessonRepository, LessonRepository>();
 builder.Services.AddScoped<ILessonService, LessonService>();
 builder.Services.AddScoped<IBlobService, BlobService>();
 
+// --- 3. MassTransit Messaging Setup ---
 builder.Services.AddMassTransit(x =>
 {
     x.SetKebabCaseEndpointNameFormatter();
-
     x.AddConsumer<CourseCompletedConsumer>();
-
     x.UsingRabbitMq((context, cfg) =>
     {
         cfg.Host("localhost", "/", h =>
@@ -42,20 +48,18 @@ builder.Services.AddMassTransit(x =>
             h.Username("guest");
             h.Password("guest");
         });
-
         cfg.ConfigureEndpoints(context);
     });
 });
 
+// --- 4. JWT Authentication Logic ---
 var jwtSettings = builder.Configuration.GetSection("Jwt");
 var jwtKey = GetRequiredJwtValue(jwtSettings, "Key");
+
 if (jwtKey.StartsWith("<set-via-", StringComparison.Ordinal) || jwtKey.Length < 32)
 {
-    throw new InvalidOperationException("Jwt:Key must be configured and at least 32 characters long.");
+    throw new InvalidOperationException("CRITICAL: Jwt:Key must be configured in User Secrets and be at least 32 chars.");
 }
-
-var jwtIssuer = GetRequiredJwtValue(jwtSettings, "Issuer");
-var jwtAudience = GetRequiredJwtValue(jwtSettings, "Audience");
 
 builder.Services.AddAuthentication(options =>
 {
@@ -69,31 +73,33 @@ builder.Services.AddAuthentication(options =>
         ValidateIssuerSigningKey = true,
         IssuerSigningKey = new SymmetricSecurityKey(Encoding.ASCII.GetBytes(jwtKey)),
         ValidateIssuer = true,
-        ValidIssuer = jwtIssuer,
+        ValidIssuer = jwtSettings["Issuer"],
         ValidateAudience = true,
-        ValidAudience = jwtAudience,
+        ValidAudience = jwtSettings["Audience"],
         ValidateLifetime = true,
         ClockSkew = TimeSpan.Zero
     };
 });
 
 builder.Services.AddAuthorization();
-
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
+
+// --- 5. Swagger/OpenAPI Configuration ---
 builder.Services.AddSwaggerGen(options =>
 {
-    var jwtScheme = new OpenApiSecurityScheme
+    options.SwaggerDoc("v1", new OpenApiInfo { Title = "EduLearn Content API", Version = "v1" });
+
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Name = "Authorization",
         Type = SecuritySchemeType.Http,
         Scheme = "bearer",
         BearerFormat = "JWT",
         In = ParameterLocation.Header,
-        Description = "Enter JWT token only (without the Bearer prefix)."
-    };
+        Description = "Enter JWT token only."
+    });
 
-    options.AddSecurityDefinition("Bearer", jwtScheme);
     options.AddSecurityRequirement(document => new OpenApiSecurityRequirement
     {
         {
@@ -107,13 +113,37 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
-        policy.WithOrigins("http://localhost:4200")
+        policy.WithOrigins("http://localhost:4200", "http://localhost:5000")
               .AllowAnyHeader()
               .AllowAnyMethod();
     });
 });
 
 var app = builder.Build();
+
+// --- 6. Automated Migration Execution ---
+using (var scope = app.Services.CreateScope())
+{
+    var services = scope.ServiceProvider;
+    try
+    {
+        var context = services.GetRequiredService<ContentDbContext>();
+        if (context.Database.GetPendingMigrations().Any())
+        {
+            Console.WriteLine("INFO: Applying Content API migrations to Azure SQL...");
+            context.Database.Migrate();
+            Console.WriteLine("SUCCESS: Content Database Migrated Successfully.");
+        }
+        else
+        {
+            Console.WriteLine("INFO: Content Database is already up to date.");
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"ERROR: Migration failed. Details: {ex.Message}");
+    }
+}
 
 if (app.Environment.IsDevelopment())
 {
@@ -136,6 +166,5 @@ static string GetRequiredJwtValue(IConfigurationSection section, string key)
     {
         throw new InvalidOperationException($"Jwt:{key} is missing from configuration.");
     }
-
     return value;
 }

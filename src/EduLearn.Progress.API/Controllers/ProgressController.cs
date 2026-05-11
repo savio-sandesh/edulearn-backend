@@ -11,14 +11,10 @@ namespace EduLearn.Progress.API.Controllers;
 public class ProgressController : ControllerBase
 {
     private readonly ProgressDbContext _dbContext;
-    private readonly IConfiguration _configuration;
-    private readonly IWebHostEnvironment _environment;
 
-    public ProgressController(ProgressDbContext dbContext, IConfiguration configuration, IWebHostEnvironment environment)
+    public ProgressController(ProgressDbContext dbContext)
     {
         _dbContext = dbContext;
-        _configuration = configuration;
-        _environment = environment;
     }
 
     [HttpPost("mark-complete")]
@@ -206,40 +202,12 @@ public class ProgressController : ControllerBase
             return NotFound(new { message = "Certificate record not found." });
         }
 
-        if (string.IsNullOrWhiteSpace(record.CertificateUrl) || !record.CertificateUrl.StartsWith("/certificates/", StringComparison.OrdinalIgnoreCase))
+        if (string.IsNullOrWhiteSpace(record.CertificateUrl))
         {
-            return BadRequest(new { message = "Certificate URL is invalid." });
+            return BadRequest(new { message = "Certificate URL is missing." });
         }
 
-        var fileName = Path.GetFileName(record.CertificateUrl);
-        if (string.IsNullOrWhiteSpace(fileName))
-        {
-            return BadRequest(new { message = "Certificate file name is invalid." });
-        }
-
-        var outputDirectory = ResolveCertificatesOutputDirectory();
-        var physicalPath = Path.Combine(outputDirectory, fileName);
-        if (!System.IO.File.Exists(physicalPath))
-        {
-            return NotFound(new { message = "Certificate file not found on disk." });
-        }
-
-        return PhysicalFile(physicalPath, "application/pdf", fileName);
-    }
-
-    private string ResolveCertificatesOutputDirectory()
-    {
-        var configuredDirectory = _configuration["Certificate:OutputDirectory"];
-        var outputDirectory = string.IsNullOrWhiteSpace(configuredDirectory)
-            ? @"C:\Temp"
-            : configuredDirectory;
-
-        if (!Path.IsPathRooted(outputDirectory))
-        {
-            outputDirectory = Path.Combine(_environment.ContentRootPath, outputDirectory);
-        }
-
-        return outputDirectory;
+        return Redirect(record.CertificateUrl);
     }
 
     public sealed class MarkCompleteRequest

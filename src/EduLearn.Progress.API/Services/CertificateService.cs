@@ -9,17 +9,20 @@ public class CertificateService : ICertificateService
     private readonly IWebHostEnvironment _environment;
     private readonly IConfiguration _configuration;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IBlobStorageService _blobStorageService;
     private readonly ILogger<CertificateService> _logger;
 
     public CertificateService(
         IWebHostEnvironment environment,
         IConfiguration configuration,
         IHttpClientFactory httpClientFactory,
+        IBlobStorageService blobStorageService,
         ILogger<CertificateService> logger)
     {
         _environment = environment;
         _configuration = configuration;
         _httpClientFactory = httpClientFactory;
+        _blobStorageService = blobStorageService;
         _logger = logger;
         QuestPDF.Settings.License = LicenseType.Community;
     }
@@ -32,21 +35,10 @@ public class CertificateService : ICertificateService
         string studentName,
         string? avatarUrl = null)
     {
-        var configuredDirectory = _configuration["Certificate:OutputDirectory"];
-        var certificatesDirectory = string.IsNullOrWhiteSpace(configuredDirectory)
-            ? @"C:\Temp"
-            : configuredDirectory;
-
-        if (!Path.IsPathRooted(certificatesDirectory))
-        {
-            certificatesDirectory = Path.Combine(_environment.ContentRootPath, certificatesDirectory);
-        }
-
-        Directory.CreateDirectory(certificatesDirectory);
-
         var fileName = $"cert-course-{courseId}-student-{studentId}-{verificationCode}.pdf";
-        var filePath = Path.Combine(certificatesDirectory, fileName);
         var avatarBytes = await GetAvatarBytesAsync(studentId, avatarUrl);
+
+        using var pdfStream = new MemoryStream();
 
         Document.Create(container =>
         {
@@ -74,10 +66,10 @@ public class CertificateService : ICertificateService
                     column.Item().PaddingTop(20).AlignCenter().Text($"Verification Code: {verificationCode}").Bold();
                 });
             });
-        }).GeneratePdf(filePath);
+        }).GeneratePdf(pdfStream);
 
-        var certificateUrl = $"/certificates/{fileName}";
-        return certificateUrl;
+        pdfStream.Position = 0;
+        return await _blobStorageService.UploadCertificateAsync(pdfStream, fileName, "application/pdf");
     }
 
     private async Task<byte[]> GetAvatarBytesAsync(int studentId, string? avatarUrl)

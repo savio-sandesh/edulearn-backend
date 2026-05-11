@@ -9,14 +9,23 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// --- 1. Database Configuration (SQL Server) ---
+// --- 1. Database Configuration (SQL Server with Retry Logic) ---
 builder.Services.AddDbContext<AuthDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseSqlServer(
+        builder.Configuration.GetConnectionString("DefaultConnection"),
+        sqlServerOptionsAction: sqlOptions =>
+        {
+            // Transient error resiliency for Azure SQL
+            sqlOptions.EnableRetryOnFailure(
+                maxRetryCount: 5,
+                maxRetryDelay: TimeSpan.FromSeconds(30),
+                errorNumbersToAdd: null);
+        }));
 
 // --- 2. Dependency Injection for Services ---
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IUserService, UserService>();
-builder.Services.AddScoped<IBlobService, BlobService>(); // Moved here for better organization
+builder.Services.AddScoped<IBlobService, BlobService>();
 
 // --- 3. JWT Authentication Setup ---
 var jwtSettings = builder.Configuration.GetSection("Jwt");
@@ -68,7 +77,7 @@ builder.Services.AddAuthorization();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
-// --- 5. Swagger Setup with Authorize Button ---
+// --- 5. Swagger Setup ---
 builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new OpenApiInfo { Title = "EduLearn Auth API", Version = "v1" });
@@ -105,7 +114,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
-        policy.WithOrigins("http://localhost:4200")
+        policy.WithOrigins("http://localhost:4200", "http://localhost:5000")
               .AllowAnyHeader()
               .AllowAnyMethod();
     });
@@ -113,7 +122,29 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-// --- 6. Middleware Pipeline ---
+// --- 6. Automatic Database Migration Logic ---
+using (var scope = app.Services.CreateScope())
+{
+    var services = scope.ServiceProvider;
+    try
+    {
+        var context = services.GetRequiredService<AuthDbContext>();
+        // Applying pending migrations on startup
+        if (context.Database.GetPendingMigrations().Any())
+        {
+            Console.WriteLine("⏳ Applying migrations to Azure SQL...");
+            context.Database.Migrate();
+            Console.WriteLine("✅ Migrations applied successfully!");
+        }
+    }
+    catch (Exception ex)
+    {
+        var logger = services.GetRequiredService<ILogger<Program>>();
+        logger.LogError(ex, "An error occurred while migrating the database.");
+    }
+}
+
+// --- 7. Middleware Pipeline ---
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -123,19 +154,12 @@ if (app.Environment.IsDevelopment())
 app.UseCors("AllowFrontend");
 app.UseHttpsRedirection();
 
-// Order is crucial: Auth first, then Authorization
 app.UseAuthentication(); 
 app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
 
-/// <summary>
-/// Reads a required Jwt setting and fails fast when it is missing or blank.
-/// </summary>
-/// <param name="jwtSection">Jwt configuration section.</param>
-/// <param name="key">Configuration key name inside Jwt section.</param>
-/// <returns>Non-empty configuration value.</returns>
 static string GetRequiredJwtValue(IConfigurationSection jwtSection, string key)
 {
     var value = jwtSection[key];
@@ -143,6 +167,5 @@ static string GetRequiredJwtValue(IConfigurationSection jwtSection, string key)
     {
         throw new InvalidOperationException($"Jwt:{key} is missing from configuration.");
     }
-
     return value;
 }
