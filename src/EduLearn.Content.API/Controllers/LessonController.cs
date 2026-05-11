@@ -157,6 +157,7 @@ public class LessonController : ControllerBase
 
     [Authorize(Roles = "INSTRUCTOR,ADMIN")]
     [HttpPost("upload-video")]
+    [DisableRequestSizeLimit]
     public async Task<IActionResult> UploadVideo([FromForm] IFormFile file)
     {
         if (file == null || file.Length == 0)

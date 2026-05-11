@@ -42,8 +42,19 @@ builder.Services.AddAuthorization();
 
 // 3. YARP REVERSE PROXY CONFIGURATION
 // Loads routing rules (Routes and Clusters) from the 'ReverseProxy' section in appsettings.json.
+// Increase Kestrel request size limit and configure reverse-proxy HTTP client timeout
+builder.WebHost.ConfigureKestrel(options =>
+{
+    // Set request body size to 1GB (1073741824 bytes)
+    options.Limits.MaxRequestBodySize = 1073741824;
+});
+
 builder.Services.AddReverseProxy()
-    .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
+    .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"))
+    .ConfigureHttpClient((context, handler) => {
+        // Increase connect timeout for upstream connections
+        handler.ConnectTimeout = TimeSpan.FromMinutes(5);
+    });
 
 var app = builder.Build();
 

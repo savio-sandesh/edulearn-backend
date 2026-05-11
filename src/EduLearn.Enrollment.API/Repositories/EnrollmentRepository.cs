@@ -90,4 +90,9 @@ public class EnrollmentRepository : IEnrollmentRepository
     {
         return await _dbContext.Database.BeginTransactionAsync();
     }
+
+    public Microsoft.EntityFrameworkCore.Storage.IExecutionStrategy CreateExecutionStrategy()
+    {
+        return _dbContext.Database.CreateExecutionStrategy();
+    }
 }

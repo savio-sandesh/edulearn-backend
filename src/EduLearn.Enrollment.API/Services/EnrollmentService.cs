@@ -3,6 +3,7 @@ using EduLearn.Enrollment.API.Models;
 using EduLearn.Enrollment.API.Repositories;
 using EduLearn.Shared;
 using MassTransit;
+using System.Threading;
 
 namespace EduLearn.Enrollment.API.Services;
 
@@ -32,26 +33,44 @@ public class EnrollmentService : IEnrollmentService
             throw new ArgumentException("Student is already enrolled in this course.");
         }
 
-        await using var transaction = await _enrollmentRepository.BeginTransactionAsync();
+        var strategy = _enrollmentRepository.CreateExecutionStrategy();
 
-        var enrollment = new Models.Enrollment
-        {
-            StudentId = studentId,
-            CourseId = courseId,
-            EnrolledAt = DateTime.UtcNow,
-            Status = EnrollmentStatus.ACTIVE,
-            ProgressPercent = 0,
-            LastAccessedAt = DateTime.UtcNow
-        };
+        var result = await strategy.ExecuteAsync<object, EnrollmentResponseDto>(
+            null,
+            async (dbContext, state, cancellationToken) =>
+            {
+                await using var transaction = await _enrollmentRepository.BeginTransactionAsync();
+                try
+                {
+                    var enrollment = new Models.Enrollment
+                    {
+                        StudentId = studentId,
+                        CourseId = courseId,
+                        EnrolledAt = DateTime.UtcNow,
+                        Status = EnrollmentStatus.ACTIVE,
+                        ProgressPercent = 0,
+                        LastAccessedAt = DateTime.UtcNow
+                    };
 
-        await _enrollmentRepository.AddAsync(enrollment);
-        await _enrollmentRepository.SaveChangesAsync();
+                    await _enrollmentRepository.AddAsync(enrollment);
+                    await _enrollmentRepository.SaveChangesAsync();
 
-        await _courseService.IncrementEnrollmentAsync(courseId);
+                    await _courseService.IncrementEnrollmentAsync(courseId);
 
-        await transaction.CommitAsync();
+                    await transaction.CommitAsync();
 
-        return MapToResponse(enrollment);
+                    return MapToResponse(enrollment);
+                }
+                catch
+                {
+                    await transaction.RollbackAsync();
+                    throw;
+                }
+            },
+            null,
+            CancellationToken.None);
+
+        return result;
     }
 
     public async Task<EnrollmentResponseDto?> GetEnrollmentByIdAsync(int enrollmentId)

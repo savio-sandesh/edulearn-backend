@@ -17,4 +17,5 @@ public interface IEnrollmentRepository
     Task<int> CountByCourseIdAsync(int courseId);
     Task SaveChangesAsync();
     Task<IDbContextTransaction> BeginTransactionAsync();
+    Microsoft.EntityFrameworkCore.Storage.IExecutionStrategy CreateExecutionStrategy();
 }

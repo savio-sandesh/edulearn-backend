@@ -111,8 +111,10 @@ public class BlobService : IBlobService
             BlobContainerName = containerName,
             BlobName = blobName,
             Resource = "b",
-            StartsOn = DateTimeOffset.UtcNow.AddMinutes(-5),
-            ExpiresOn = DateTimeOffset.UtcNow.AddMinutes(_sasExpiryMinutes)
+            // Start time should be set in the past to avoid clock skew issues
+            StartsOn = DateTimeOffset.UtcNow.AddMinutes(-30),
+            // Expire one hour from now
+            ExpiresOn = DateTimeOffset.UtcNow.AddHours(1)
         };
         sasBuilder.SetPermissions(BlobSasPermissions.Read);
 
