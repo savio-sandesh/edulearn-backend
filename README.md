@@ -25,7 +25,8 @@ EduLearn Review API is a dedicated microservice for course reviews and rating mo
 This service handles the review lifecycle for courses:
 
 - students can submit ratings and comments for courses they are enrolled in
-- admins can approve reviews for public visibility
+- admins can approve reviews for public visibility (endpoint still exists)
+- reviews are currently auto-approved on submission (so they reflect immediately)
 - public consumers can read approved reviews and course average ratings
 
 ## Features
@@ -68,7 +69,7 @@ Review entity fields:
 - StudentId
 - Rating (1..5)
 - Comment
-- IsApproved (default false)
+- IsApproved (default false in DB; service currently creates approved reviews)
 - CreatedAt (UTC)
 
 ## Database Constraints
@@ -87,7 +88,8 @@ AddReviewAsync:
 
 - validates enrollment via Enrollment API
 - checks if student already reviewed the same course
-- creates review with IsApproved = false and UTC CreatedAt
+- creates review with IsApproved = true and UTC CreatedAt (auto-approved)
+- wraps creation in an EF execution strategy + transaction (commit/rollback)
 - handles DbUpdateException as duplicate submission protection fallback
 
 ApproveReviewAsync:
@@ -182,7 +184,7 @@ Base route: api/reviews
 - POST /api/reviews
 	- role: STUDENT
 	- body: courseId, rating, comment
-	- behavior: creates unapproved review after enrollment and duplicate checks
+	- behavior: creates review (auto-approved) after enrollment and duplicate checks
 
 - GET /api/reviews/course/{id}
 	- role: public
@@ -204,8 +206,8 @@ Base route: api/reviews
 4. Run Review API.
 5. Use src/EduLearn.Review.API/EduLearn.Review.API.http for sample requests.
 6. Submit review with STUDENT token.
-7. Approve review with ADMIN token.
-8. Verify public endpoints show approved review and non-zero average.
+7. Optional: Approve review with ADMIN token (if moderation is enabled).
+8. Verify public endpoints show review and non-zero average.
 
 ## Automated Tests
 

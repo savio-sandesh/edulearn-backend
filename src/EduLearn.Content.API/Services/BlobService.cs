@@ -24,44 +24,49 @@ public class BlobService : IBlobService
             return Task.FromResult(contentUrl);
         }
 
-        if (!Uri.TryCreate(contentUrl, UriKind.Absolute, out var contentUri))
+        // If the stored value is a full absolute URL, try to reuse/validate it or convert
+        if (Uri.TryCreate(contentUrl, UriKind.Absolute, out var contentUri))
         {
-            return Task.FromResult(contentUrl);
+            if (HasSasToken(contentUri))
+            {
+                return Task.FromResult(contentUrl);
+            }
+
+            var path = contentUri.AbsolutePath.Trim('/');
+            var segments = path.Split('/', 2, StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Length < 2)
+            {
+                return Task.FromResult(contentUrl);
+            }
+
+            var containerName = segments[0];
+            var blobName = Uri.UnescapeDataString(segments[1]);
+
+            // Fix for local Azurite emulator where the first path segment is the account name
+            if (contentUri.IsLoopback && containerName == "devstoreaccount1")
+            {
+                var azuriteSegments = blobName.Split('/', 2, StringSplitOptions.RemoveEmptyEntries);
+                if (azuriteSegments.Length < 2) return Task.FromResult(contentUrl);
+                containerName = azuriteSegments[0];
+                blobName = azuriteSegments[1];
+            }
+
+            var blobServiceClient = new BlobServiceClient(_connectionString);
+            if (!string.Equals(contentUri.Host, blobServiceClient.Uri.Host, StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.FromResult(contentUrl);
+            }
+
+            var blobClient = blobServiceClient.GetBlobContainerClient(containerName).GetBlobClient(blobName);
+            var sasUrl = GenerateReadSasUrl(blobClient, containerName, blobName);
+            return Task.FromResult(sasUrl);
         }
 
-        if (HasSasToken(contentUri))
-        {
-            return Task.FromResult(contentUrl);
-        }
-
-        var path = contentUri.AbsolutePath.Trim('/');
-        var segments = path.Split('/', 2, StringSplitOptions.RemoveEmptyEntries);
-        if (segments.Length < 2)
-        {
-            return Task.FromResult(contentUrl);
-        }
-
-        var containerName = segments[0];
-        var blobName = Uri.UnescapeDataString(segments[1]);
-
-        // Fix for local Azurite emulator where the first path segment is the account name
-        if (contentUri.IsLoopback && containerName == "devstoreaccount1")
-        {
-            var azuriteSegments = blobName.Split('/', 2, StringSplitOptions.RemoveEmptyEntries);
-            if (azuriteSegments.Length < 2) return Task.FromResult(contentUrl);
-            containerName = azuriteSegments[0];
-            blobName = azuriteSegments[1];
-        }
-
-        var blobServiceClient = new BlobServiceClient(_connectionString);
-        if (!string.Equals(contentUri.Host, blobServiceClient.Uri.Host, StringComparison.OrdinalIgnoreCase))
-        {
-            return Task.FromResult(contentUrl);
-        }
-
-        var blobClient = blobServiceClient.GetBlobContainerClient(containerName).GetBlobClient(blobName);
-        var sasUrl = GenerateReadSasUrl(blobClient, containerName, blobName);
-        return Task.FromResult(sasUrl);
+        // If the stored value is not an absolute URL, treat it as a blob name in the default container
+        var fallbackBlobServiceClient = new BlobServiceClient(_connectionString);
+        var fallbackBlobClient = fallbackBlobServiceClient.GetBlobContainerClient(_defaultContainerName).GetBlobClient(contentUrl);
+        var fallbackSas = GenerateReadSasUrl(fallbackBlobClient, _defaultContainerName, contentUrl);
+        return Task.FromResult(fallbackSas);
     }
 
     private static int ReadSasMinutes(string? value)
@@ -112,9 +117,9 @@ public class BlobService : IBlobService
             BlobName = blobName,
             Resource = "b",
             // Start time should be set in the past to avoid clock skew issues
-            StartsOn = DateTimeOffset.UtcNow.AddMinutes(-30),
-            // Expire one hour from now
-            ExpiresOn = DateTimeOffset.UtcNow.AddHours(1)
+            StartsOn = DateTimeOffset.UtcNow.AddMinutes(-60),
+            // ExpiresOn extended for local/testing to reduce SAS expiry issues
+            ExpiresOn = DateTimeOffset.UtcNow.AddHours(24)
         };
         sasBuilder.SetPermissions(BlobSasPermissions.Read);
 

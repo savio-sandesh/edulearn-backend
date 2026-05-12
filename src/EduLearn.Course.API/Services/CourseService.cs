@@ -9,10 +9,14 @@ namespace EduLearn.Course.API.Services
     public class CourseService : ICourseService
     {
         private readonly ICourseRepository _courseRepository;
+        private readonly IReviewServiceClient _reviewServiceClient;
+        private readonly IBlobService _blobService;
 
-        public CourseService(ICourseRepository courseRepository)
+        public CourseService(ICourseRepository courseRepository, IReviewServiceClient reviewServiceClient, IBlobService blobService)
         {
             _courseRepository = courseRepository;
+            _reviewServiceClient = reviewServiceClient;
+            _blobService = blobService;
         }
 
         public async Task<CourseResponseDto> CreateCourseAsync(CourseCreateDto courseDto, int currentUserId)
@@ -35,25 +39,57 @@ namespace EduLearn.Course.API.Services
 
             await _courseRepository.AddAsync(course);
             await _courseRepository.SaveChangesAsync();
-            return MapToResponseDto(course);
+            
+            var dto = MapToResponseDto(course);
+            await EnrichCourseWithSasUrlAsync(dto);
+            return dto;
         }
 
         public async Task<CourseResponseDto?> GetCourseByIdAsync(int courseId)
         {
             var course = await _courseRepository.FindByCourseIdAsync(courseId);
-            return course == null ? null : MapToResponseDto(course);
+            if (course == null)
+            {
+                return null;
+            }
+
+            var dto = MapToResponseDto(course);
+            
+            // Enrich with SAS URL if thumbnail is a blob filename
+            await EnrichCourseWithSasUrlAsync(dto);
+            
+            // Fetch live average rating from Review API
+            dto.AverageRating = await _reviewServiceClient.GetAverageRatingAsync(courseId);
+            return dto;
         }
 
         public async Task<IReadOnlyList<CourseResponseDto>> GetCoursesByInstructorAsync(int instructorId)
         {
             var courses = await _courseRepository.FindByInstructorIdAsync(instructorId);
-            return courses.Select(MapToResponseDto).ToList();
+            var dtos = courses.Select(MapToResponseDto).ToList();
+            
+            // Enrich thumbnails with SAS URLs
+            await EnrichCoursesWithSasUrlsAsync(dtos);
+            
+            return dtos;
         }
 
         public async Task<IReadOnlyList<CourseResponseDto>> GetCoursesByCategoryAsync(string category)
         {
             var courses = await _courseRepository.FindByCategoryAsync(category);
-            return courses.Select(MapToResponseDto).ToList();
+            
+            var dtos = courses.Select(MapToResponseDto).ToList();
+            
+            // Enrich thumbnails with SAS URLs
+            await EnrichCoursesWithSasUrlsAsync(dtos);
+            
+            // Fetch live average ratings from Review API for all courses
+            foreach (var dto in dtos)
+            {
+                dto.AverageRating = await _reviewServiceClient.GetAverageRatingAsync(dto.CourseId);
+            }
+            
+            return dtos;
         }
 
         public async Task<IReadOnlyList<string>> GetAvailableCategoriesAsync()
@@ -65,27 +101,61 @@ namespace EduLearn.Course.API.Services
         {
             var published = await _courseRepository.FindByIsPublishedAsync(true);
             var courses = published.Where(c => c.IsApproved).ToList();
-            return courses.Select(MapToResponseDto).ToList();
+            
+            var dtos = courses.Select(MapToResponseDto).ToList();
+            
+            // Enrich thumbnails with SAS URLs
+            await EnrichCoursesWithSasUrlsAsync(dtos);
+            
+            // Fetch live average ratings from Review API for all courses
+            foreach (var dto in dtos)
+            {
+                dto.AverageRating = await _reviewServiceClient.GetAverageRatingAsync(dto.CourseId);
+            }
+            
+            return dtos;
         }
 
         public async Task<IReadOnlyList<CourseResponseDto>> GetPendingApprovalCoursesAsync()
         {
             var published = await _courseRepository.FindByIsPublishedAsync(true);
             var pending = published.Where(c => !c.IsApproved).ToList();
-            return pending.Select(MapToResponseDto).ToList();
+            var dtos = pending.Select(MapToResponseDto).ToList();
+            
+            // Enrich thumbnails with SAS URLs
+            await EnrichCoursesWithSasUrlsAsync(dtos);
+            
+            return dtos;
         }
 
         public async Task<IReadOnlyList<CourseResponseDto>> GetPendingDeleteCoursesAsync()
         {
             var courses = await _courseRepository.FindPendingDeleteAsync();
-            return courses.Select(MapToResponseDto).ToList();
+            var dtos = courses.Select(MapToResponseDto).ToList();
+            
+            // Enrich thumbnails with SAS URLs
+            await EnrichCoursesWithSasUrlsAsync(dtos);
+            
+            return dtos;
         }
 
         public async Task<IReadOnlyList<CourseResponseDto>> SearchCoursesAsync(string searchTerm)
         {
             var results = await _courseRepository.SearchCoursesAsync(searchTerm);
             var courses = results.Where(c => c.IsPublished && c.IsApproved).ToList();
-            return courses.Select(MapToResponseDto).ToList();
+            
+            var dtos = courses.Select(MapToResponseDto).ToList();
+            
+            // Enrich thumbnails with SAS URLs
+            await EnrichCoursesWithSasUrlsAsync(dtos);
+            
+            // Fetch live average ratings from Review API for all courses
+            foreach (var dto in dtos)
+            {
+                dto.AverageRating = await _reviewServiceClient.GetAverageRatingAsync(dto.CourseId);
+            }
+            
+            return dtos;
         }
 
         public async Task<CourseResponseDto?> UpdateCourseAsync(int courseId, CourseUpdateDto updatedCourse, int currentUserId, bool isAdmin)
@@ -109,7 +179,10 @@ namespace EduLearn.Course.API.Services
             existing.IsApproved = false;
 
             await _courseRepository.SaveChangesAsync();
-            return MapToResponseDto(existing);
+            
+            var dto = MapToResponseDto(existing);
+            await EnrichCourseWithSasUrlAsync(dto);
+            return dto;
         }
 
         public async Task<CourseResponseDto?> UpdateThumbnailUrlAsync(int courseId, string thumbnailUrl, int currentUserId, bool isAdmin)
@@ -126,7 +199,10 @@ namespace EduLearn.Course.API.Services
             course.UpdatedAt = DateTime.UtcNow;
 
             await _courseRepository.SaveChangesAsync();
-            return MapToResponseDto(course);
+            
+            var dto = MapToResponseDto(course);
+            await EnrichCourseWithSasUrlAsync(dto);
+            return dto;
         }
 
         public async Task<bool> PublishCourseAsync(int courseId, int currentUserId, bool isAdmin)
@@ -228,7 +304,12 @@ namespace EduLearn.Course.API.Services
         public async Task<IReadOnlyList<CourseResponseDto>> GetTopRatedCoursesAsync(int count)
         {
             var courses = await _courseRepository.FindTopRatedAsync(count);
-            return courses.Select(MapToResponseDto).ToList();
+            var dtos = courses.Select(MapToResponseDto).ToList();
+            
+            // Enrich thumbnails with SAS URLs
+            await EnrichCoursesWithSasUrlsAsync(dtos);
+            
+            return dtos;
         }
 
         public async Task<bool> IncrementEnrollmentAsync(int courseId)
@@ -402,6 +483,36 @@ namespace EduLearn.Course.API.Services
                 EnrollmentCount = course.EnrollmentCount,
                 AverageRating = course.AverageRating
             };
+        }
+
+        /// <summary>
+        /// Enriches a course DTO with a signed SAS URL for the thumbnail.
+        /// If ThumbnailUrl is a filename (not starting with "http"), generates a read-only SAS URL.
+        /// </summary>
+        private async Task EnrichCourseWithSasUrlAsync(CourseResponseDto dto)
+        {
+            if (!string.IsNullOrEmpty(dto.ThumbnailUrl) && !dto.ThumbnailUrl.StartsWith("http"))
+            {
+                try
+                {
+                    dto.ThumbnailUrl = await _blobService.GenerateReadSasUrlAsync(dto.ThumbnailUrl, "course-thumbnails");
+                }
+                catch
+                {
+                    // If SAS generation fails, leave the filename as-is
+                }
+            }
+        }
+
+        /// <summary>
+        /// Enriches a collection of courses with signed SAS URLs.
+        /// </summary>
+        private async Task EnrichCoursesWithSasUrlsAsync(IReadOnlyList<CourseResponseDto> courses)
+        {
+            foreach (var course in courses)
+            {
+                await EnrichCourseWithSasUrlAsync(course);
+            }
         }
     }
 }

@@ -67,13 +67,49 @@ namespace EduLearn.Course.API.Services
                 BlobContainerName = containerName,
                 BlobName = blobName,
                 Resource = "b",
-                StartsOn = DateTimeOffset.UtcNow.AddMinutes(-5),
-                ExpiresOn = DateTimeOffset.UtcNow.AddMinutes(_sasExpiryMinutes)
+                StartsOn = DateTimeOffset.UtcNow.AddMinutes(-60),
+                ExpiresOn = DateTimeOffset.UtcNow.AddHours(24)
             };
             sasBuilder.SetPermissions(BlobSasPermissions.Read);
 
             var signedUri = blobClient.GenerateSasUri(sasBuilder);
             return signedUri.ToString();
+        }
+
+        /// <summary>
+        /// Generates a read-only SAS URL for a blob file (1 hour expiry).
+        /// </summary>
+        public async Task<string> GenerateReadSasUrlAsync(string fileName, string containerName)
+        {
+            if (string.IsNullOrEmpty(fileName))
+            {
+                return null;
+            }
+
+            if (_blobServiceClient == null)
+            {
+                throw new InvalidOperationException(_configurationError ?? "Azure blob storage is not configured.");
+            }
+
+            var containerClient = _blobServiceClient.GetBlobContainerClient(containerName);
+            var blobClient = containerClient.GetBlobClient(fileName);
+
+            if (!blobClient.CanGenerateSasUri)
+            {
+                throw new InvalidOperationException("Azure Storage connection string must include an account key to generate SAS URLs.");
+            }
+
+            // 1 hour expiry for read-only access
+            var sasBuilder = new BlobSasBuilder
+            {
+                BlobContainerName = containerName,
+                BlobName = fileName,
+                Resource = "b",
+                ExpiresOn = DateTimeOffset.UtcNow.AddHours(1)
+            };
+            sasBuilder.SetPermissions(BlobSasPermissions.Read);
+
+            return blobClient.GenerateSasUri(sasBuilder).ToString();
         }
 
         private static int ReadSasMinutes(string? value)

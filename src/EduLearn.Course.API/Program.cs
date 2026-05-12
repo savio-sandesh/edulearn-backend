@@ -29,6 +29,8 @@ builder.Services.AddDbContext<CourseDbContext>(options =>
 builder.Services.AddScoped<ICourseRepository, CourseRepository>();
 builder.Services.AddScoped<ICourseService, CourseService>();
 builder.Services.AddScoped<IBlobService, BlobService>();
+builder.Services.AddHttpClient();
+builder.Services.AddScoped<IReviewServiceClient, ReviewServiceClient>();
 
 // --- 4. JWT Authentication ---
 var jwtSettings = builder.Configuration.GetSection("Jwt");

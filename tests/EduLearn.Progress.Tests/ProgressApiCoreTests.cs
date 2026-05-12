@@ -98,6 +98,7 @@ public class ProgressApiCoreTests
                 environment,
                 config,
                 successFactory.Object,
+                Mock.Of<IBlobStorageService>(),
                 Mock.Of<ILogger<CertificateService>>());
 
             var getAvatarBytesMethod = typeof(CertificateService)
@@ -121,6 +122,7 @@ public class ProgressApiCoreTests
                 environment,
                 config,
                 failFactory.Object,
+                Mock.Of<IBlobStorageService>(),
                 Mock.Of<ILogger<CertificateService>>());
 
             var failTask = (Task<byte[]>)getAvatarBytesMethod.Invoke(failService, new object?[] { 12, "https://blob.test/fail.png" })!;
@@ -171,6 +173,7 @@ public class ProgressApiCoreTests
                 environment,
                 config,
                 factory.Object,
+                Mock.Of<IBlobStorageService>(),
                 Mock.Of<ILogger<CertificateService>>());
 
             var url = await service.GenerateCertificateAsync(
@@ -238,7 +241,7 @@ public class ProgressApiCoreTests
                 WebRootPath = Path.Combine(tempRoot, "wwwroot")
             };
 
-            var controller = new ProgressController(context, config, environment);
+            var controller = new ProgressController(context);
 
             var result = await controller.DownloadCertificate(certificate.Id);
 
@@ -286,7 +289,7 @@ public class ProgressApiCoreTests
             WebRootPath = Path.Combine(Path.GetTempPath(), "wwwroot")
         };
 
-        var controller = new ProgressController(context, config, environment);
+        var controller = new ProgressController(context);
 
         var firstResult = await controller.MarkComplete(new ProgressController.MarkCompleteRequest
         {
@@ -353,10 +356,7 @@ public class ProgressApiCoreTests
         await context.Certificates.AddAsync(certificate);
         await context.SaveChangesAsync();
 
-        var controller = new ProgressController(
-            context,
-            new ConfigurationBuilder().Build(),
-            new FakeWebHostEnvironment());
+        var controller = new ProgressController(context);
 
         var invalidGuidResult = await controller.VerifyCertificate("not-a-guid");
         Assert.That(invalidGuidResult, Is.TypeOf<BadRequestObjectResult>());

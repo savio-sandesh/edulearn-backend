@@ -10,13 +10,15 @@ namespace EduLearn.Course.Tests;
 public class CourseServiceTests
 {
     private Mock<ICourseRepository> _courseRepositoryMock = null!;
+    private Mock<IReviewServiceClient> _reviewServiceClientMock = null!;
     private CourseService _service = null!;
 
     [SetUp]
     public void SetUp()
     {
         _courseRepositoryMock = new Mock<ICourseRepository>();
-        _service = new CourseService(_courseRepositoryMock.Object);
+        _reviewServiceClientMock = new Mock<IReviewServiceClient>();
+        _service = new CourseService(_courseRepositoryMock.Object, _reviewServiceClientMock.Object);
     }
 
     [Test]
