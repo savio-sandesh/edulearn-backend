@@ -43,11 +43,9 @@ builder.Services.AddMassTransit(x =>
     x.AddConsumer<CourseCompletedConsumer>();
     x.UsingRabbitMq((context, cfg) =>
     {
-        cfg.Host("localhost", "/", h =>
-        {
-            h.Username("guest");
-            h.Password("guest");
-        });
+        var rabbitUri = new Uri(builder.Configuration["RabbitMQ:Host"]
+            ?? throw new InvalidOperationException("RabbitMQ:Host is missing from configuration."));
+        cfg.Host(rabbitUri);
         cfg.ConfigureEndpoints(context);
     });
 });
