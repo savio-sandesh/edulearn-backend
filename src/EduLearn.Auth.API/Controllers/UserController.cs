@@ -9,7 +9,7 @@ namespace EduLearn.Auth.API.Controllers
     /// <summary>
     /// Handles user registration, authentication, and profile endpoints.
     /// </summary>
-    [Route("api/[controller]")]
+    [Route("api/auth")]
     [ApiController]
     public class UserController : ControllerBase
     {
