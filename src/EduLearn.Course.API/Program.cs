@@ -28,7 +28,7 @@ builder.Services.AddDbContext<CourseDbContext>(options =>
 // --- 3. Dependency Injection ---
 builder.Services.AddScoped<ICourseRepository, CourseRepository>();
 builder.Services.AddScoped<ICourseService, CourseService>();
-builder.Services.AddScoped<IBlobService, BlobService>();
+builder.Services.AddScoped<EduLearn.Shared.Services.ISharedBlobService, EduLearn.Shared.Services.SharedBlobService>();
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<IReviewServiceClient, ReviewServiceClient>();
 

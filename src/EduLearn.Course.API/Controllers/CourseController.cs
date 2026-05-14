@@ -11,9 +11,9 @@ namespace EduLearn.Course.API.Controllers
     public class CourseController : ControllerBase
     {
         private readonly ICourseService _courseService;
-        private readonly IBlobService _blobService;
+        private readonly EduLearn.Shared.Services.ISharedBlobService _blobService;
 
-        public CourseController(ICourseService courseService, IBlobService blobService)
+        public CourseController(ICourseService courseService, EduLearn.Shared.Services.ISharedBlobService blobService)
         {
             _courseService = courseService;
             _blobService = blobService;
@@ -193,9 +193,9 @@ namespace EduLearn.Course.API.Controllers
             try
             {
                 await using var stream = file.OpenReadStream();
-                var imageUrl = await _blobService.UploadFileAsync(stream, file.FileName, file.ContentType);
+                var imagePath = await _blobService.UploadFileAsync(stream, file.FileName, file.ContentType);
 
-                var updated = await _courseService.UpdateThumbnailUrlAsync(id, imageUrl, currentUserId, User.IsInRole("ADMIN"));
+                var updated = await _courseService.UpdateThumbnailUrlAsync(id, imagePath, currentUserId, User.IsInRole("ADMIN"));
                 if (updated == null)
                 {
                     return NotFound(new { message = "Course not found" });

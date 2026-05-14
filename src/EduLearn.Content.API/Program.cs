@@ -34,7 +34,7 @@ builder.Services.AddDbContext<ContentDbContext>(options =>
 
 builder.Services.AddScoped<ILessonRepository, LessonRepository>();
 builder.Services.AddScoped<ILessonService, LessonService>();
-builder.Services.AddScoped<IBlobService, BlobService>();
+builder.Services.AddScoped<EduLearn.Shared.Services.ISharedBlobService, EduLearn.Shared.Services.SharedBlobService>();
 
 // --- 3. MassTransit Messaging Setup ---
 builder.Services.AddMassTransit(x =>

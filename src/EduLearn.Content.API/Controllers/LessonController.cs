@@ -10,9 +10,9 @@ namespace EduLearn.Content.API.Controllers;
 public class LessonController : ControllerBase
 {
     private readonly ILessonService _lessonService;
-    private readonly IBlobService _blobService;
+    private readonly EduLearn.Shared.Services.ISharedBlobService _blobService;
 
-    public LessonController(ILessonService lessonService, IBlobService blobService)
+    public LessonController(ILessonService lessonService, EduLearn.Shared.Services.ISharedBlobService blobService)
     {
         _lessonService = lessonService;
         _blobService = blobService;
@@ -170,8 +170,10 @@ public class LessonController : ControllerBase
             var fileName = $"{Guid.NewGuid()}-{file.FileName}";
             using var stream = file.OpenReadStream();
             
-            var url = await _blobService.UploadBlobAsync(stream, fileName, file.ContentType);
-            return Ok(new { url });
+                var storedName = await _blobService.UploadBlobAsync(stream, fileName, file.ContentType);
+                var sas = await _blobService.GenerateReadSasUrlAsync(storedName);
+                return Ok(new { url = sas });
+            // Removed redundant/invalid return
         }
         catch (Exception ex)
         {

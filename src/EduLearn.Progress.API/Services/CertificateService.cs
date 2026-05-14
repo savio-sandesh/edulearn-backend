@@ -1,6 +1,8 @@
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
+using Azure.Storage.Blobs;
+using Azure.Storage.Sas;
 
 namespace EduLearn.Progress.API.Services;
 
@@ -108,7 +110,45 @@ public class CertificateService : ICertificateService
     {
         if (!string.IsNullOrWhiteSpace(avatarUrl))
         {
-            return avatarUrl;
+            // If it's already a full URL, return as-is
+            if (avatarUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                avatarUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                return avatarUrl;
+            }
+
+            // Otherwise treat it as a stored blob name and try to generate a SAS URL
+            try
+            {
+                var connectionString = _configuration["AzureStorage:ConnectionString"];
+                if (string.IsNullOrWhiteSpace(connectionString)) return string.Empty;
+
+                var containerName = _configuration["AzureStorage:ContainerName"] ?? "avatars";
+                var blobServiceClient = new BlobServiceClient(connectionString);
+                var containerClient = blobServiceClient.GetBlobContainerClient(containerName);
+                var blobClient = containerClient.GetBlobClient(avatarUrl);
+
+                if (!blobClient.CanGenerateSasUri)
+                {
+                    return string.Empty;
+                }
+
+                var sasBuilder = new BlobSasBuilder
+                {
+                    BlobContainerName = containerName,
+                    BlobName = avatarUrl,
+                    Resource = "b",
+                    StartsOn = DateTimeOffset.UtcNow.AddMinutes(-5),
+                    ExpiresOn = DateTimeOffset.UtcNow.AddHours(24)
+                };
+                sasBuilder.SetPermissions(BlobSasPermissions.Read);
+
+                return blobClient.GenerateSasUri(sasBuilder).ToString();
+            }
+            catch
+            {
+                return string.Empty;
+            }
         }
 
         var template = _configuration["Avatar:BlobUrlTemplate"];

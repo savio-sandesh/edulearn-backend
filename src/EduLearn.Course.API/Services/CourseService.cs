@@ -10,9 +10,9 @@ namespace EduLearn.Course.API.Services
     {
         private readonly ICourseRepository _courseRepository;
         private readonly IReviewServiceClient _reviewServiceClient;
-        private readonly IBlobService _blobService;
+        private readonly EduLearn.Shared.Services.ISharedBlobService _blobService;
 
-        public CourseService(ICourseRepository courseRepository, IReviewServiceClient reviewServiceClient, IBlobService blobService)
+        public CourseService(ICourseRepository courseRepository, IReviewServiceClient reviewServiceClient, EduLearn.Shared.Services.ISharedBlobService blobService)
         {
             _courseRepository = courseRepository;
             _reviewServiceClient = reviewServiceClient;
@@ -195,7 +195,7 @@ namespace EduLearn.Course.API.Services
 
             EnsureCanModifyCourse(course, currentUserId, isAdmin);
 
-            course.ThumbnailUrl = thumbnailUrl;
+            course.ThumbnailUrl = NormalizeThumbnailReference(thumbnailUrl);
             course.UpdatedAt = DateTime.UtcNow;
 
             await _courseRepository.SaveChangesAsync();
@@ -438,7 +438,7 @@ namespace EduLearn.Course.API.Services
                 Level = dto.Level,
                 Language = dto.Language,
                 Price = dto.Price,
-                ThumbnailUrl = dto.ThumbnailUrl,
+                ThumbnailUrl = NormalizeThumbnailReference(dto.ThumbnailUrl),
                 TotalDuration = dto.TotalDuration
             };
         }
@@ -457,8 +457,10 @@ namespace EduLearn.Course.API.Services
             // If the DTO omits ThumbnailUrl (null/empty), keep the existing stored value.
             if (!string.IsNullOrWhiteSpace(dto.ThumbnailUrl))
             {
-                course.ThumbnailUrl = dto.ThumbnailUrl;
+                course.ThumbnailUrl = NormalizeThumbnailReference(dto.ThumbnailUrl);
             }
+
+            course.ThumbnailUrl = NormalizeThumbnailReference(course.ThumbnailUrl);
         }
 
         private static CourseResponseDto MapToResponseDto(CourseModel course)
@@ -491,15 +493,16 @@ namespace EduLearn.Course.API.Services
         /// </summary>
         private async Task EnrichCourseWithSasUrlAsync(CourseResponseDto dto)
         {
-            if (!string.IsNullOrEmpty(dto.ThumbnailUrl) && !dto.ThumbnailUrl.StartsWith("http"))
+            var thumbnailReference = TryGetBlobReference(dto.ThumbnailUrl);
+            if (!string.IsNullOrEmpty(thumbnailReference))
             {
                 try
                 {
-                    dto.ThumbnailUrl = await _blobService.GenerateReadSasUrlAsync(dto.ThumbnailUrl, "course-thumbnails");
+                    dto.ThumbnailUrl = await _blobService.GenerateReadSasUrlAsync(thumbnailReference, "course-thumbnails");
                 }
                 catch
                 {
-                    // If SAS generation fails, leave the filename as-is
+                    // If SAS generation fails, leave the stored reference as-is.
                 }
             }
         }
@@ -513,6 +516,53 @@ namespace EduLearn.Course.API.Services
             {
                 await EnrichCourseWithSasUrlAsync(course);
             }
+        }
+
+        private static string? NormalizeThumbnailReference(string? thumbnailUrl)
+        {
+            var blobReference = TryGetBlobReference(thumbnailUrl);
+            if (blobReference != null)
+            {
+                return blobReference;
+            }
+
+            if (string.IsNullOrWhiteSpace(thumbnailUrl))
+            {
+                return null;
+            }
+
+            return thumbnailUrl.Trim();
+        }
+
+        private static string? TryGetBlobReference(string? thumbnailUrl)
+        {
+            if (string.IsNullOrWhiteSpace(thumbnailUrl))
+            {
+                return null;
+            }
+
+            var trimmed = thumbnailUrl.Trim();
+
+            if (!Uri.TryCreate(trimmed, UriKind.Absolute, out var uri))
+            {
+                var relativePath = trimmed.Split('?', '#')[0].Replace('\\', '/');
+                return string.IsNullOrWhiteSpace(relativePath) ? null : relativePath;
+            }
+
+            if (!uri.Host.Contains(".blob.core.windows.net", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            var path = uri.AbsolutePath.Trim('/');
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return null;
+            }
+
+            var firstSlash = path.IndexOf('/');
+            var blobPath = firstSlash >= 0 ? path[(firstSlash + 1)..] : path;
+            return string.IsNullOrWhiteSpace(blobPath) ? null : blobPath;
         }
     }
 }

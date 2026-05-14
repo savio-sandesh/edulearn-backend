@@ -40,12 +40,23 @@ namespace EduLearn.Auth.API.Services
             // Azure par upload karna
             await blobClient.UploadAsync(fileStream, new BlobUploadOptions { HttpHeaders = blobHttpHeader });
 
-            // Final URL return karna
-            return GenerateReadSasUrl(blobClient, _containerName, uniqueFileName);
+            // Return only the stored blob name. SAS URLs should be generated dynamically when requested.
+            return uniqueFileName;
         }
 
-        private string GenerateReadSasUrl(BlobClient blobClient, string containerName, string blobName)
+        /// <summary>
+        /// Generates a read-only SAS URL for a stored blob file.
+        /// </summary>
+        public Task<string> GenerateReadSasUrlAsync(string fileName)
         {
+            if (string.IsNullOrEmpty(fileName))
+            {
+                return Task.FromResult(string.Empty);
+            }
+
+            var containerClient = _blobServiceClient.GetBlobContainerClient(_containerName);
+            var blobClient = containerClient.GetBlobClient(fileName);
+
             if (!blobClient.CanGenerateSasUri)
             {
                 throw new InvalidOperationException("Azure Storage connection string must include an account key to generate SAS URLs.");
@@ -53,16 +64,16 @@ namespace EduLearn.Auth.API.Services
 
             var sasBuilder = new BlobSasBuilder
             {
-                BlobContainerName = containerName,
-                BlobName = blobName,
+                BlobContainerName = _containerName,
+                BlobName = fileName,
                 Resource = "b",
                 StartsOn = DateTimeOffset.UtcNow.AddMinutes(-5),
-                ExpiresOn = DateTimeOffset.UtcNow.AddMinutes(_sasExpiryMinutes)
+                ExpiresOn = DateTimeOffset.UtcNow.AddHours(24)
             };
             sasBuilder.SetPermissions(BlobSasPermissions.Read);
 
-            var signedUri = blobClient.GenerateSasUri(sasBuilder);
-            return signedUri.ToString();
+            var uri = blobClient.GenerateSasUri(sasBuilder).ToString();
+            return Task.FromResult(uri);
         }
 
         private static int ReadSasMinutes(string? value)

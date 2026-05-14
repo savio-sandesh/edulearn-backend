@@ -11,6 +11,7 @@ public class CourseServiceTests
 {
     private Mock<ICourseRepository> _courseRepositoryMock = null!;
     private Mock<IReviewServiceClient> _reviewServiceClientMock = null!;
+    private Mock<IBlobService> _blobServiceMock = null!;
     private CourseService _service = null!;
 
     [SetUp]
@@ -18,7 +19,8 @@ public class CourseServiceTests
     {
         _courseRepositoryMock = new Mock<ICourseRepository>();
         _reviewServiceClientMock = new Mock<IReviewServiceClient>();
-        _service = new CourseService(_courseRepositoryMock.Object, _reviewServiceClientMock.Object);
+        _blobServiceMock = new Mock<IBlobService>();
+        _service = new CourseService(_courseRepositoryMock.Object, _reviewServiceClientMock.Object, _blobServiceMock.Object);
     }
 
     [Test]
@@ -104,5 +106,76 @@ public class CourseServiceTests
         Assert.That(result, Is.False);
         Assert.That(course.IsPublished, Is.False);
         _courseRepositoryMock.Verify(x => x.SaveChangesAsync(), Times.Never);
+    }
+
+    [Test]
+    public async Task UpdateThumbnailUrlAsync_WhenGivenBlobSasUrl_StoresOnlyBlobPathAndReturnsFreshSasUrl()
+    {
+        const int courseId = 42;
+        const int instructorId = 9;
+        const string legacySasUrl = "https://account.blob.core.windows.net/course-thumbnails/thumbnails/course.jpg?se=2026-05-13&sig=old";
+        const string storedBlobPath = "thumbnails/course.jpg";
+        const string refreshedSasUrl = "https://account.blob.core.windows.net/course-thumbnails/thumbnails/course.jpg?se=2026-05-15&sig=new";
+
+        var course = new CourseModel
+        {
+            CourseId = courseId,
+            InstructorId = instructorId
+        };
+
+        _courseRepositoryMock
+            .Setup(x => x.FindByCourseIdAsync(courseId))
+            .ReturnsAsync(course);
+
+        _courseRepositoryMock
+            .Setup(x => x.SaveChangesAsync())
+            .Returns(Task.CompletedTask);
+
+        _blobServiceMock
+            .Setup(x => x.GenerateReadSasUrlAsync(storedBlobPath, "course-thumbnails"))
+            .ReturnsAsync(refreshedSasUrl);
+
+        var result = await _service.UpdateThumbnailUrlAsync(courseId, legacySasUrl, instructorId, isAdmin: false);
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(course.ThumbnailUrl, Is.EqualTo(storedBlobPath));
+        Assert.That(result!.ThumbnailUrl, Is.EqualTo(refreshedSasUrl));
+        _blobServiceMock.Verify(x => x.GenerateReadSasUrlAsync(storedBlobPath, "course-thumbnails"), Times.Once);
+    }
+
+    [Test]
+    public async Task GetCourseByIdAsync_WhenThumbnailIsStoredAsBlobPath_ReissuesFreshSasUrl()
+    {
+        const int courseId = 51;
+        const string storedBlobPath = "thumbnails/course.jpg";
+        const string refreshedSasUrl = "https://account.blob.core.windows.net/course-thumbnails/thumbnails/course.jpg?se=2026-05-15&sig=new";
+
+        var course = new CourseModel
+        {
+            CourseId = courseId,
+            InstructorId = 11,
+            ThumbnailUrl = storedBlobPath,
+            IsPublished = true,
+            IsApproved = true
+        };
+
+        _courseRepositoryMock
+            .Setup(x => x.FindByCourseIdAsync(courseId))
+            .ReturnsAsync(course);
+
+        _reviewServiceClientMock
+            .Setup(x => x.GetAverageRatingAsync(courseId))
+            .ReturnsAsync(4.5);
+
+        _blobServiceMock
+            .Setup(x => x.GenerateReadSasUrlAsync(storedBlobPath, "course-thumbnails"))
+            .ReturnsAsync(refreshedSasUrl);
+
+        var result = await _service.GetCourseByIdAsync(courseId);
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.ThumbnailUrl, Is.EqualTo(refreshedSasUrl));
+        Assert.That(result.AverageRating, Is.EqualTo(4.5));
+        _blobServiceMock.Verify(x => x.GenerateReadSasUrlAsync(storedBlobPath, "course-thumbnails"), Times.Once);
     }
 }

@@ -6,17 +6,14 @@ namespace EduLearn.Course.API.Services
 {
     public class BlobService : IBlobService
     {
-        private const int DefaultSasMinutes = 30;
         private readonly BlobServiceClient? _blobServiceClient;
         private readonly string _containerName;
         private readonly string? _configurationError;
-        private readonly int _sasExpiryMinutes;
 
         public BlobService(IConfiguration config)
         {
             var connectionString = config.GetSection("AzureStorage")["ConnectionString"];
             _containerName = config.GetSection("AzureStorage")["ContainerName"] ?? "course-thumbnails";
-            _sasExpiryMinutes = ReadSasMinutes(config.GetSection("AzureStorage")["SasExpiryMinutes"]);
 
             if (string.IsNullOrWhiteSpace(connectionString))
             {
@@ -52,38 +49,17 @@ namespace EduLearn.Course.API.Services
                 HttpHeaders = new BlobHttpHeaders { ContentType = contentType }
             });
 
-            return GenerateReadSasUrl(blobClient, _containerName, uniqueFileName);
-        }
-
-        private string GenerateReadSasUrl(BlobClient blobClient, string containerName, string blobName)
-        {
-            if (!blobClient.CanGenerateSasUri)
-            {
-                throw new InvalidOperationException("Azure Storage connection string must include an account key to generate SAS URLs.");
-            }
-
-            var sasBuilder = new BlobSasBuilder
-            {
-                BlobContainerName = containerName,
-                BlobName = blobName,
-                Resource = "b",
-                StartsOn = DateTimeOffset.UtcNow.AddMinutes(-60),
-                ExpiresOn = DateTimeOffset.UtcNow.AddHours(24)
-            };
-            sasBuilder.SetPermissions(BlobSasPermissions.Read);
-
-            var signedUri = blobClient.GenerateSasUri(sasBuilder);
-            return signedUri.ToString();
+            return uniqueFileName;
         }
 
         /// <summary>
-        /// Generates a read-only SAS URL for a blob file (1 hour expiry).
+        /// Generates a read-only SAS URL for a blob file.
         /// </summary>
         public async Task<string> GenerateReadSasUrlAsync(string fileName, string containerName)
         {
             if (string.IsNullOrEmpty(fileName))
             {
-                return null;
+                return string.Empty;
             }
 
             if (_blobServiceClient == null)
@@ -99,27 +75,18 @@ namespace EduLearn.Course.API.Services
                 throw new InvalidOperationException("Azure Storage connection string must include an account key to generate SAS URLs.");
             }
 
-            // 1 hour expiry for read-only access
+            // 24 hour expiry for read-only access (use UTC now to avoid clock skew issues)
             var sasBuilder = new BlobSasBuilder
             {
                 BlobContainerName = containerName,
                 BlobName = fileName,
                 Resource = "b",
-                ExpiresOn = DateTimeOffset.UtcNow.AddHours(1)
+                StartsOn = DateTimeOffset.UtcNow.AddMinutes(-5),
+                ExpiresOn = DateTimeOffset.UtcNow.AddHours(24)
             };
             sasBuilder.SetPermissions(BlobSasPermissions.Read);
 
             return blobClient.GenerateSasUri(sasBuilder).ToString();
-        }
-
-        private static int ReadSasMinutes(string? value)
-        {
-            if (int.TryParse(value, out var parsed) && parsed > 0)
-            {
-                return parsed;
-            }
-
-            return DefaultSasMinutes;
         }
     }
 }

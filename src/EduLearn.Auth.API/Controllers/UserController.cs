@@ -3,6 +3,7 @@ using EduLearn.Auth.API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using System.IO;
 
 namespace EduLearn.Auth.API.Controllers
 {
@@ -14,14 +15,14 @@ namespace EduLearn.Auth.API.Controllers
     public class UserController : ControllerBase
     {
         private readonly IUserService _userService;
-        private readonly IBlobService _blobService;
+        private readonly EduLearn.Shared.Services.ISharedBlobService _blobService;
 
         /// <summary>
         /// Initializes a new instance of the user controller.
         /// </summary>
         /// <param name="userService">User business service.</param>
         /// <param name="blobService">Blob storage service.</param>
-        public UserController(IUserService userService, IBlobService blobService)
+        public UserController(IUserService userService, EduLearn.Shared.Services.ISharedBlobService blobService)
         {
             _userService = userService;
             _blobService = blobService;
@@ -163,13 +164,15 @@ namespace EduLearn.Auth.API.Controllers
                 return NotFound(new { message = "User not found" });
             }
 
+            var avatarSas = await ResolveAvatarSasAsync(user.AvatarUrl);
+
             return Ok(new
             {
                 user.UserId,
                 user.FullName,
                 user.Email,
                 user.Role,
-                user.AvatarUrl,
+                AvatarUrl = avatarSas,
                 user.IsActive,
                 user.CreatedAt,
                 user.LastLoginAt
@@ -241,17 +244,19 @@ namespace EduLearn.Auth.API.Controllers
                     return NotFound(new { message = "No users found for the requested role." });
                 }
 
-                return Ok(users.Select(user => new
+                var enriched = await Task.WhenAll(users.Select(async user => new
                 {
                     user.UserId,
                     user.FullName,
                     user.Email,
                     user.Role,
-                    user.AvatarUrl,
+                    AvatarUrl = await ResolveAvatarSasAsync(user.AvatarUrl),
                     user.IsActive,
                     user.CreatedAt,
                     user.LastLoginAt
                 }));
+
+                return Ok(enriched);
             }
             catch (ArgumentException ex)
             {
@@ -274,17 +279,19 @@ namespace EduLearn.Auth.API.Controllers
                 return NotFound(new { message = "No users matched the search criteria." });
             }
 
-            return Ok(users.Select(user => new
+            var enriched = await Task.WhenAll(users.Select(async user => new
             {
                 user.UserId,
                 user.FullName,
                 user.Email,
                 user.Role,
-                user.AvatarUrl,
+                AvatarUrl = await ResolveAvatarSasAsync(user.AvatarUrl),
                 user.IsActive,
                 user.CreatedAt,
                 user.LastLoginAt
             }));
+
+            return Ok(enriched);
         }
 
         /// <summary>
@@ -310,6 +317,7 @@ namespace EduLearn.Auth.API.Controllers
                 try
                 {
                     using var stream = avatar.OpenReadStream();
+                    // Upload returns the stored blob name only
                     avatarUrl = await _blobService.UploadFileAsync(stream, avatar.FileName, avatar.ContentType);
                 }
                 catch (Exception)
@@ -323,7 +331,46 @@ namespace EduLearn.Auth.API.Controllers
 
             if (!result) return NotFound(new { message = "User not found" });
 
-            return Ok(new { message = "Profile updated successfully", avatarUrl });
+            var returnedAvatar = await ResolveAvatarSasAsync(avatarUrl);
+            return Ok(new { message = "Profile updated successfully", avatarUrl = returnedAvatar });
+        }
+
+        private static string? ExtractBlobName(string? stored)
+        {
+            if (string.IsNullOrWhiteSpace(stored)) return null;
+
+            // If the stored value looks like a URL (old behavior), extract the blob name from the path.
+            if (stored.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                stored.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    var uri = new Uri(stored);
+                    return Path.GetFileName(uri.LocalPath);
+                }
+                catch
+                {
+                    return stored;
+                }
+            }
+
+            return stored;
+        }
+
+        private async Task<string?> ResolveAvatarSasAsync(string? stored)
+        {
+            var blobName = ExtractBlobName(stored);
+            if (string.IsNullOrEmpty(blobName)) return null;
+
+            try
+            {
+                return await _blobService.GenerateReadSasUrlAsync(blobName);
+            }
+            catch
+            {
+                // If SAS generation fails, return null so frontend can fallback to default avatar.
+                return null;
+            }
         }
 
         /// <summary>

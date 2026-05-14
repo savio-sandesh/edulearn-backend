@@ -15,9 +15,9 @@ public class LessonService : ILessonService
     };
 
     private readonly ILessonRepository _lessonRepository;
-    private readonly IBlobService _blobService;
+    private readonly EduLearn.Shared.Services.ISharedBlobService _blobService;
 
-    public LessonService(ILessonRepository lessonRepository, IBlobService blobService)
+    public LessonService(ILessonRepository lessonRepository, EduLearn.Shared.Services.ISharedBlobService blobService)
     {
         _lessonRepository = lessonRepository;
         _blobService = blobService;
@@ -28,13 +28,13 @@ public class LessonService : ILessonService
         ValidateLessonInput(lesson.Title, lesson.ContentType, lesson.ContentUrl, lesson.DurationMinutes);
 
         var existingCount = await _lessonRepository.CountByCourseIdAsync(lesson.CourseId);
-        var entity = new Lesson
+            var entity = new Lesson
         {
             CourseId = lesson.CourseId,
             Title = lesson.Title.Trim(),
             Description = lesson.Description?.Trim() ?? string.Empty,
             ContentType = NormalizeContentType(lesson.ContentType),
-            ContentUrl = lesson.ContentUrl.Trim(),
+                ContentUrl = NormalizeContentUrl(lesson.ContentUrl.Trim()),
             DurationMinutes = lesson.DurationMinutes,
             DisplayOrder = existingCount + 1,
             IsPreview = lesson.IsPreview,
@@ -85,7 +85,7 @@ public class LessonService : ILessonService
         existing.Title = lesson.Title.Trim();
         existing.Description = lesson.Description?.Trim() ?? string.Empty;
         existing.ContentType = NormalizeContentType(lesson.ContentType);
-        existing.ContentUrl = lesson.ContentUrl.Trim();
+        existing.ContentUrl = NormalizeContentUrl(lesson.ContentUrl.Trim());
         existing.DurationMinutes = lesson.DurationMinutes;
         existing.IsPreview = lesson.IsPreview;
 
@@ -230,6 +230,31 @@ public class LessonService : ILessonService
         {
             throw new ArgumentException("DurationMinutes must be zero or greater.");
         }
+    }
+
+    private static string? NormalizeContentUrl(string? contentUrl)
+    {
+        if (string.IsNullOrWhiteSpace(contentUrl)) return contentUrl;
+
+        var trimmed = contentUrl.Trim();
+        if (!Uri.TryCreate(trimmed, UriKind.Absolute, out var uri))
+        {
+            // Not an absolute URL, treat as stored blob name
+            return trimmed;
+        }
+
+        if (!uri.Host.Contains(".blob.core.windows.net", StringComparison.OrdinalIgnoreCase))
+        {
+            // External URL - keep as-is
+            return trimmed;
+        }
+
+        var path = uri.AbsolutePath.Trim('/');
+        if (string.IsNullOrWhiteSpace(path)) return null;
+
+        var firstSlash = path.IndexOf('/');
+        var blobPath = firstSlash >= 0 ? path[(firstSlash + 1)..] : path;
+        return string.IsNullOrWhiteSpace(blobPath) ? null : blobPath;
     }
 
 

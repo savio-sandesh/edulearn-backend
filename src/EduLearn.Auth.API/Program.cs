@@ -25,7 +25,7 @@ builder.Services.AddDbContext<AuthDbContext>(options =>
 // --- 2. Dependency Injection for Services ---
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IUserService, UserService>();
-builder.Services.AddScoped<IBlobService, BlobService>();
+builder.Services.AddScoped<EduLearn.Shared.Services.ISharedBlobService, EduLearn.Shared.Services.SharedBlobService>();
 
 // --- 3. JWT Authentication Setup ---
 var jwtSettings = builder.Configuration.GetSection("Jwt");
