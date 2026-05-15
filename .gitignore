@@ -4,6 +4,7 @@ Thumbs.db
 
 # Editor/IDE
 .vscode/
+.vs/
 .idea/
 *.suo
 *.user
@@ -58,3 +59,7 @@ pnpm-debug.log*
 
 # Docker
 **/.docker/
+
+# ls cache
+*.lscache
+.ls-cache/
