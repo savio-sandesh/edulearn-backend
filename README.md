@@ -371,9 +371,3 @@ You can also target individual services, for example:
 dotnet test .\edulearn-backend\tests\EduLearn.Review.Tests\EduLearn.Review.Tests.csproj
 ```
 
-## Notes For Evaluation
-
-- The backend is now documented as a complete microservices platform rather than a single service.
-- Review behavior is auto-approval on submission, with admin moderation still available.
-- The gateway is the intended single origin for frontend-to-backend calls.
-- The repository includes local Azurite data for blob storage emulation.
